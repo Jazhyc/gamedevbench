@@ -17,7 +17,7 @@ Qiuhong Anna Wei, Runkun Chen, Alexander Wang, Valerie Chen, Ameet Talwalkar, Ch
 Despite rapid progress on coding agents, progress on their multimodal counterparts has lagged behind. A key challenge is the scarcity of evaluation testbeds that combine the complexity of software development with the need for deep multimodal understanding. Game development provides such a testbed as agents must navigate large, dense codebases while manipulating intrinsically multimodal assets such as shaders, sprites, and animations within a visual game scene. We present **GameDevBench**, the first benchmark for evaluating agents on game development tasks. GameDevBench consists of 132 tasks derived from web and video tutorials. Tasks require significant multimodal understanding and are complex — the average solution requires over three times the amount of lines of code and file changes compared to prior software development benchmarks. Agents still struggle with game development, with the best agent solving only 54.5% of tasks. We find a strong correlation between perceived task difficulty and multimodal complexity, with success rates dropping from 46.9% on gameplay-oriented tasks to 31.6% on 2D graphics tasks. To improve multimodal capability, we introduce two simple image and video-based feedback mechanisms for agents. Despite their simplicity, these methods consistently improve performance, with the largest change being an increase in Claude Sonnet 4.5's performance from 33.3% to 47.7%. We release GameDevBench publicly to support further research into agentic game development.
 
 <p align="center">
-  <img src="https://arxiv.org/html/2602.11103v1/imgs/taxonomy-examples.png" alt="GameDevBench task taxonomy" width="90%">
+  <img src="assets/taxonomy-examples.png" alt="GameDevBench task taxonomy" width="90%">
 </p>
 
 ## Overview
@@ -25,7 +25,7 @@ Despite rapid progress on coding agents, progress on their multimodal counterpar
 GameDevBench contains **132 game development tasks** to evaluate LLM agents' ability to complete game development problems in the **Godot game engine**. Tasks span four categories — 3D Graphics, 2D Graphics, Gameplay, and UI — and require agents to reason about multimodal assets including shaders, sprites, animations, and visual game scenes.
 
 <p align="center">
-  <img src="https://arxiv.org/html/2602.11103v1/imgs/example_workflow.png" alt="GameDevBench example workflow" width="90%">
+  <img src="assets/example_workflow.png" alt="GameDevBench example workflow" width="90%">
 </p>
 
 ## Installation

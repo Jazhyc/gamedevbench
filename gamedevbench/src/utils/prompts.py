@@ -51,7 +51,7 @@ def create_task_prompt(config: dict, use_runtime_video: bool = False, use_mcp: b
         runtime_guidance = """
     - You can run the game and get an image with `godot --path . --quit-after 1
     --write-movie output.png`.
-    - You can save a movie file as avi instead with `timeout 60s godot --path . --quit-after 60 --write-movie output.avi`. This is a 1 second or 60 frame video. You can adjust as necessary.
+    - You can save a movie file as wav or avi instead with `timeout 60s godot --path . --quit-after 60 --write-movie output.wav`. This is a 1 second or 60 frame video. You can adjust as necessary.
     - It is very important that you ensure godot closes after running, or else the task will hang indefinitely.
     - You should use the video or images to verify that your changes worked as expected.
     """

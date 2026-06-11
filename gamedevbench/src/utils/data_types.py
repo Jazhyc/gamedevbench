@@ -5,27 +5,46 @@ from datetime import datetime
 from typing import Dict, Optional
 
 
-# Token pricing per 1M tokens (USD) - Updated December 2024
-TOKEN_PRICING = {
+# Token pricing per 1M tokens (USD).
+# Prices are matched by substring, in order, and reflect standard API rates.
+# Sources used when updating this table on 2026-04-19:
+# - OpenAI pricing: https://developers.openai.com/api/docs/pricing
+# - Google Gemini pricing: https://ai.google.dev/gemini-api/docs/pricing
+MODEL_PRICING = [
     # Anthropic Claude
-    "claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
-    "claude-3-5-sonnet": {"input": 3.00, "output": 15.00},
-    "claude-3-opus": {"input": 15.00, "output": 75.00},
-    "claude-3-haiku": {"input": 0.25, "output": 1.25},
-    # OpenAI GPT
-    "gpt-4o": {"input": 2.50, "output": 10.00},
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
-    "gpt-4": {"input": 30.00, "output": 60.00},
-    "gpt-4-turbo": {"input": 10.00, "output": 30.00},
-    "o1": {"input": 15.00, "output": 60.00},
-    "o1-mini": {"input": 3.00, "output": 12.00},
-    # OpenAI Codex (uses GPT-4o pricing as base)
-    "codex": {"input": 2.50, "output": 10.00},
-    # Google Gemini CLI (free)
-    "gemini": {"input": 0.00, "output": 0.00},
+    ("claude-sonnet-4-20250514", {"input": 3.00, "cached_input": 3.00, "output": 15.00}),
+    ("claude-3-5-sonnet", {"input": 3.00, "cached_input": 3.00, "output": 15.00}),
+    ("claude-3-opus", {"input": 15.00, "cached_input": 15.00, "output": 75.00}),
+    ("claude-3-haiku", {"input": 0.25, "cached_input": 0.25, "output": 1.25}),
+    # OpenAI Codex / GPT
+    ("gpt-5.3-codex", {"input": 1.75, "cached_input": 0.175, "output": 14.00}),
+    ("gpt-5.2-codex", {"input": 1.75, "cached_input": 0.175, "output": 14.00}),
+    ("gpt-5.1-codex-max", {"input": 1.25, "cached_input": 0.125, "output": 10.00}),
+    ("gpt-5.1-codex", {"input": 1.25, "cached_input": 0.125, "output": 10.00}),
+    ("gpt-5-codex", {"input": 1.25, "cached_input": 0.125, "output": 10.00}),
+    ("gpt-5.4", {"input": 2.50, "cached_input": 0.25, "output": 15.00}),
+    ("gpt-5.2", {"input": 1.75, "cached_input": 0.175, "output": 14.00}),
+    ("gpt-5.1", {"input": 1.25, "cached_input": 0.125, "output": 10.00}),
+    ("gpt-5", {"input": 1.25, "cached_input": 0.125, "output": 10.00}),
+    ("gpt-4o-mini", {"input": 0.15, "cached_input": 0.075, "output": 0.60}),
+    ("gpt-4o", {"input": 2.50, "cached_input": 1.25, "output": 10.00}),
+    ("gpt-4-turbo", {"input": 10.00, "cached_input": 10.00, "output": 30.00}),
+    ("gpt-4", {"input": 30.00, "cached_input": 30.00, "output": 60.00}),
+    ("o1-mini", {"input": 3.00, "cached_input": 3.00, "output": 12.00}),
+    ("o1", {"input": 15.00, "cached_input": 15.00, "output": 60.00}),
+    ("codex", {"input": 1.25, "cached_input": 0.125, "output": 10.00}),
+    # Google Gemini
+    ("gemini-3.1-pro-preview", {"input": 2.00, "cached_input": 0.20, "output": 12.00}),
+    ("gemini-3-pro-preview", {"input": 2.00, "cached_input": 0.20, "output": 12.00}),
+    ("gemini-3.1-flash-lite-preview", {"input": 0.25, "cached_input": 0.025, "output": 1.50}),
+    ("gemini-3.1-flash-preview", {"input": 0.50, "cached_input": 0.05, "output": 3.00}),
+    ("gemini-3-flash-preview", {"input": 0.50, "cached_input": 0.05, "output": 3.00}),
+    ("gemini-2.5-pro", {"input": 1.25, "cached_input": 0.125, "output": 10.00}),
+    ("gemini-2.5-flash", {"input": 0.30, "cached_input": 0.03, "output": 2.50}),
+    ("gemini-2.5-flash-lite", {"input": 0.10, "cached_input": 0.01, "output": 0.40}),
     # Default fallback
-    "default": {"input": 3.00, "output": 15.00},
-}
+    ("default", {"input": 3.00, "cached_input": 3.00, "output": 15.00}),
+]
 
 
 @dataclass
@@ -40,16 +59,17 @@ class TokenUsage:
 
     def calculate_cost(self, model: str) -> float:
         """Calculate cost in USD based on model pricing."""
-        # Normalize model name
         model_lower = model.lower()
-        pricing = TOKEN_PRICING.get("default")
+        pricing = next(
+            (rates for key, rates in MODEL_PRICING if key != "default" and key in model_lower),
+            next(rates for key, rates in MODEL_PRICING if key == "default"),
+        )
 
-        for key in TOKEN_PRICING:
-            if key in model_lower:
-                pricing = TOKEN_PRICING[key]
-                break
+        cached_input_tokens = max(0, min(self.cache_read_tokens, self.input_tokens))
+        uncached_input_tokens = max(0, self.input_tokens - cached_input_tokens)
 
-        input_cost = (self.input_tokens / 1_000_000) * pricing["input"]
+        input_cost = (uncached_input_tokens / 1_000_000) * pricing["input"]
+        input_cost += (cached_input_tokens / 1_000_000) * pricing["cached_input"]
         output_cost = (self.output_tokens / 1_000_000) * pricing["output"]
 
         return input_cost + output_cost

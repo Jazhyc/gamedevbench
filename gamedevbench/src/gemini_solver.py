@@ -8,7 +8,7 @@ import asyncio
 import json
 import time
 import os
-from typing import Optional
+from typing import Any, Optional
 
 from gamedevbench.src.base_solver import BaseSolver
 from gamedevbench.src.utils.data_types import SolverResult, TokenUsage
@@ -46,6 +46,116 @@ class GeminiSolver(BaseSolver):
         # Gemini-specific parameters
         self.use_yolo = use_yolo
         self.model = model
+
+    @staticmethod
+    def _coerce_int(value: Any) -> int:
+        """Best-effort conversion for token counters from CLI JSON output."""
+        if value is None:
+            return 0
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(float(value))
+            except ValueError:
+                return 0
+        return 0
+
+    def _extract_usage_from_mapping(self, payload: Optional[dict]) -> Optional[TokenUsage]:
+        """Extract token usage from one Gemini JSON object."""
+        if not isinstance(payload, dict):
+            return None
+
+        stats = payload.get("stats")
+        if isinstance(stats, dict):
+            model_stats = None
+            models = stats.get("models")
+            if isinstance(models, dict) and models:
+                preferred_model = self.model.lower() if self.model else None
+                if preferred_model:
+                    for model_name, model_payload in models.items():
+                        if preferred_model in model_name.lower():
+                            model_stats = model_payload
+                            break
+                if model_stats is None:
+                    model_stats = next(iter(models.values()))
+
+            usage_stats = model_stats if isinstance(model_stats, dict) else stats
+            input_tokens = self._coerce_int(usage_stats.get("input_tokens"))
+            output_tokens = self._coerce_int(usage_stats.get("output_tokens"))
+            total_tokens = self._coerce_int(usage_stats.get("total_tokens"))
+            cache_read_tokens = self._coerce_int(
+                usage_stats.get("cached") or usage_stats.get("cached_tokens")
+            )
+
+            if total_tokens == 0 and (input_tokens > 0 or output_tokens > 0):
+                total_tokens = input_tokens + output_tokens
+
+            if total_tokens > 0 or cache_read_tokens > 0:
+                return TokenUsage(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens,
+                    cache_read_tokens=cache_read_tokens,
+                    cache_write_tokens=0,
+                )
+
+        nested_usage = None
+        for key in ("usage", "usageMetadata"):
+            value = payload.get(key)
+            if isinstance(value, dict):
+                nested_usage = value
+                break
+
+        if not nested_usage:
+            for key in ("response", "payload", "result"):
+                value = payload.get(key)
+                if isinstance(value, dict):
+                    nested_usage = self._extract_usage_from_mapping(value)
+                    if nested_usage:
+                        return nested_usage
+
+        usage = nested_usage if isinstance(nested_usage, dict) else payload
+
+        input_tokens = self._coerce_int(
+            usage.get("input_tokens")
+            or usage.get("inputTokens")
+            or usage.get("prompt_tokens")
+            or usage.get("promptTokenCount")
+        )
+        output_tokens = self._coerce_int(
+            usage.get("output_tokens")
+            or usage.get("outputTokens")
+            or usage.get("completion_tokens")
+            or usage.get("candidatesTokenCount")
+        )
+        total_tokens = self._coerce_int(
+            usage.get("total_tokens")
+            or usage.get("totalTokens")
+            or usage.get("totalTokenCount")
+        )
+        cache_read_tokens = self._coerce_int(
+            usage.get("cached_tokens")
+            or usage.get("cachedTokens")
+            or usage.get("cache_read_input_tokens")
+            or usage.get("cachedContentTokenCount")
+        )
+
+        if total_tokens == 0 and (input_tokens > 0 or output_tokens > 0):
+            total_tokens = input_tokens + output_tokens
+
+        if total_tokens == 0 and cache_read_tokens == 0:
+            return None
+
+        return TokenUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=0,
+        )
 
     @staticmethod
     def is_rate_limit_error(error_message: str) -> bool:
@@ -149,8 +259,7 @@ class GeminiSolver(BaseSolver):
             if self.model:
                 cmd.extend(["--model", self.model])
 
-            if self.debug:
-                cmd.extend(["--output-format", "stream-json"])
+            cmd.extend(["--output-format", "stream-json"])
 
             cmd.extend(["-p", prompt])
 
@@ -197,7 +306,7 @@ class GeminiSolver(BaseSolver):
 
             # Parse token usage and model info if available (from JSON output)
             token_usage = self._parse_token_usage(stdout)
-            model_used = self._parse_model_name(stdout) or "gemini"
+            model_used = self._parse_model_name(stdout) or self.model or "gemini"
 
             # Calculate cost
             cost_usd = 0.0
@@ -255,25 +364,21 @@ class GeminiSolver(BaseSolver):
         total_input = 0
         total_output = 0
         total_cached = 0
+        total_tokens = 0
 
         for line in output.strip().split("\n"):
             if not line:
                 continue
             try:
                 event = json.loads(line)
-
-                # Look for usage information in various formats
-                if event.get("type") == "usage":
-                    total_input += event.get("input_tokens", 0)
-                    total_output += event.get("output_tokens", 0)
-                    total_cached += event.get("cached_tokens", 0)
-
-                # Also check for usage nested in other events
-                usage = event.get("usage", {})
+                usage = self._extract_usage_from_mapping(event)
                 if usage:
-                    total_input += usage.get("input_tokens", 0)
-                    total_output += usage.get("output_tokens", 0)
-                    total_cached += usage.get("cached_tokens", 0)
+                    total_input += usage.input_tokens
+                    total_output += usage.output_tokens
+                    total_cached += usage.cache_read_tokens
+                    total_tokens += usage.total_tokens or (
+                        usage.input_tokens + usage.output_tokens
+                    )
 
             except json.JSONDecodeError:
                 # Not a JSON line, skip
@@ -283,7 +388,7 @@ class GeminiSolver(BaseSolver):
             return TokenUsage(
                 input_tokens=total_input,
                 output_tokens=total_output,
-                total_tokens=total_input + total_output,
+                total_tokens=total_tokens or (total_input + total_output),
                 cache_read_tokens=total_cached,
                 cache_write_tokens=0,
             )
@@ -296,9 +401,14 @@ class GeminiSolver(BaseSolver):
                 continue
             try:
                 event = json.loads(line)
-                model = event.get("model")
-                if model:
-                    return model
+                for candidate in (
+                    event.get("model"),
+                    event.get("modelName"),
+                    event.get("metadata", {}).get("model") if isinstance(event.get("metadata"), dict) else None,
+                    event.get("payload", {}).get("model") if isinstance(event.get("payload"), dict) else None,
+                ):
+                    if candidate:
+                        return candidate
             except json.JSONDecodeError:
                 continue
         return None

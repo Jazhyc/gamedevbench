@@ -1,67 +1,82 @@
-# GameDevBench: Evaluating Agentic Capabilities Through Game Development
+<div align="center">
 
-Wayne Chi, Yixiong Fang, Arnav Yayavaram, Siddharth Yayavaram, Seth Karten,
-Qiuhong Anna Wei, Runkun Chen, Alexander Wang, Valerie Chen, Ameet Talwalkar, Chris Donahue
+<h1>GameDevBench</h1>
+<h3>Evaluating Agentic Capabilities Through Game Development</h3>
 
-*Carnegie Mellon University, Princeton University*
+**Wayne Chi, Yixiong Fang, Arnav Yayavaram, Siddharth Yayavaram, Seth Karten,<br>Qiuhong Anna Wei, Runkun Chen, Alexander Wang, Valerie Chen, Ameet Talwalkar, Chris Donahue**
 
+*Carnegie Mellon University &nbsp;·&nbsp; Princeton University*
+
+<br>
+
+[![ICML 2026](https://img.shields.io/badge/ICML-2026-6b4fbb.svg)](https://icml.cc/)
 [![Project Page](https://img.shields.io/badge/Project-Page-blue.svg)](https://waynechi.com/gamedevbench)
 [![arXiv](https://img.shields.io/badge/arXiv-2602.11103-b31b1b.svg)](https://arxiv.org/abs/2602.11103)
 [![Hugging Face Paper](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Paper-yellow)](https://huggingface.co/papers/2602.11103)
 [![Godot](https://img.shields.io/badge/Godot-4.x-brightgreen.svg)](https://godotengine.org/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-lightgrey.svg)](LICENSE)
 
-**The first benchmark for evaluating LLM agents on game development tasks in a modern game engine.**
+<br>
+
+*The first benchmark for evaluating LLM agents on game development tasks in a modern game engine &mdash; 333 tasks, published at ICML 2026.*
+
+<img src="assets/taxonomy-examples.png" alt="GameDevBench task taxonomy" width="95%">
+
+</div>
+
+<br>
 
 ## Abstract
 
-Despite rapid progress on coding agents, progress on their multimodal counterparts has lagged behind. A key challenge is the scarcity of evaluation testbeds that combine the complexity of software development with the need for deep multimodal understanding. Game development provides such a testbed as agents must navigate large, dense codebases while manipulating intrinsically multimodal assets such as shaders, sprites, and animations within a visual game scene. We present **GameDevBench**, the first benchmark for evaluating agents on game development tasks. GameDevBench consists of 132 tasks derived from web and video tutorials. Tasks require significant multimodal understanding and are complex — the average solution requires over three times the amount of lines of code and file changes compared to prior software development benchmarks. Agents still struggle with game development, with the best agent solving only 54.5% of tasks. We find a strong correlation between perceived task difficulty and multimodal complexity, with success rates dropping from 46.9% on gameplay-oriented tasks to 31.6% on 2D graphics tasks. To improve multimodal capability, we introduce two simple image and video-based feedback mechanisms for agents. Despite their simplicity, these methods consistently improve performance, with the largest change being an increase in Claude Sonnet 4.5's performance from 33.3% to 47.7%. We release GameDevBench publicly to support further research into agentic game development.
+Despite rapid progress on coding agents, progress on their multimodal counterparts has lagged behind. A key challenge is the scarcity of evaluation testbeds that combine the complexity of software development with the need for deep multimodal understanding. Game development provides such a testbed as agents must navigate large, dense codebases while manipulating intrinsically multimodal assets such as shaders, sprites, and animations within a visual game scene.
 
-<p align="center">
-  <img src="assets/taxonomy-examples.png" alt="GameDevBench task taxonomy" width="90%">
-</p>
+We present **GameDevBench**, the first benchmark for evaluating agents on game development tasks. GameDevBench consists of 333 tasks derived from web and video tutorials. Tasks require significant multimodal understanding and are complex — the average solution requires over three times the lines of code and file changes compared to prior software development benchmarks. Agents struggle with game development, with the best agent and method solving only **53.8%** of tasks. We find a strong correlation between perceived task difficulty and multimodal complexity, with average success rate dropping from **51.4%** on gameplay-oriented tasks to **33.0%** on 2D graphics tasks.
+
+To improve multimodal capability, we introduce two simple image and video-based feedback mechanisms for agents. Despite their simplicity, these methods consistently improve performance, increasing GPT-5.4's performance from **41.1%** to **52.0%** when given visual feedback. We release GameDevBench publicly to support further research into agentic game development.
 
 ## Overview
 
-GameDevBench contains **132 game development tasks** to evaluate LLM agents' ability to complete game development problems in the **Godot game engine**. Tasks span four categories — 3D Graphics, 2D Graphics, Gameplay, and UI — and require agents to reason about multimodal assets including shaders, sprites, animations, and visual game scenes.
+GameDevBench contains **333 game development tasks** to evaluate LLM agents' ability to complete game development problems in the **Godot game engine**. Tasks span four categories — **2D Graphics & Animation** (33.3%), **3D Graphics & Animation** (26.7%), **User Interface** (20.1%), and **Gameplay Logic** (19.8%) — and require agents to reason about multimodal assets including shaders, sprites, animations, and visual game scenes. On average, a reference solution edits **4.7 files** and **114 lines of code** across **3.2 distinct filetypes**.
 
 <p align="center">
-  <img src="assets/example_workflow.png" alt="GameDevBench example workflow" width="90%">
+  <img src="assets/example_workflow.png" alt="GameDevBench example workflow" width="95%">
 </p>
 
-## Installation
+## Getting Started
 
-#### Prerequisites
+### Prerequisites
 
-1. **Godot 4.x** — Download and install from [godotengine.org](https://godotengine.org/download)
-   - Ensure `godot` is available in your PATH, or set `GODOT_EXEC_PATH` environment variable
+- **Godot 4.x** — Download from [godotengine.org](https://godotengine.org/download). Ensure `godot` is in your PATH or set `GODOT_EXEC_PATH`.
+- **Python 3.10+** (Python 3.12+ for OpenHands)
 
-2. **Python 3.10+** — Required for all agents
-   - **Python 3.12+** — Required for OpenHands agent
+### Install an Agent
 
-#### Install Agents
+| Agent | Install Guide |
+|-------|---------------|
+| Claude Code | [code.claude.com](https://code.claude.com/docs/en/overview) |
+| Codex | [openai.com/codex](https://openai.com/codex/) |
+| Gemini CLI | [geminicli.com](https://geminicli.com/) |
+| OpenHands | [openhands.dev](https://www.openhands.dev/) |
 
-Install the agent(s) you want to use:
-
-- **Claude Code** — [Claude Code](https://code.claude.com/docs/en/overview)
-- **Codex** — [Codex](https://openai.com/codex/)
-- **Gemini CLI** — [Gemini CLI](https://geminicli.com/)
-- **OpenHands** — [OpenHands](https://www.openhands.dev/)
-
-#### Setup Tasks
-
-Before running the benchmark, unzip the tasks:
+### Setup Tasks
 
 ```bash
 bash unzip_tasks.sh
 ```
 
-This will unzip all individual task archives from `tasks/` and `tasks_gt/` in place.
-
 > Tasks are distributed as individual zip files to prevent accidental data leakage.
 
-## Configuration
+### Verify Your Setup
 
-You can use the built-in plans for `claude-code`, `codex`, and `gemini-cli`, or provide API keys directly. For OpenHands you must provide your own API keys. See [`.env.example`](.env.example) for a complete list of optional environment variables.
+Every ground-truth solution should pass validation. To check your install (Godot, unzipped tasks) or the integrity of a release, run:
+
+```bash
+uv run python validate_tasks.py        # validates all 333 ground truths in parallel
+```
+
+### Configuration
+
+You can use the built-in plans for `claude-code`, `codex`, and `gemini-cli`, or provide API keys directly. For OpenHands you must provide your own API keys. See [`.env.example`](.env.example) for details.
 
 ## Usage
 
@@ -72,39 +87,40 @@ uv run python gamedevbench/src/benchmark_runner.py \
   run --task-list tasks.yaml
 ```
 
-#### Available Agents
+### Options
 
-| Agent | Description |
-|-------|-------------|
-| `claude-code` | Anthropic's Claude Code CLI |
-| `codex` | OpenAI Codex |
-| `gemini-cli` | Google Gemini CLI |
-| `openhands` | OpenHands (requires Python 3.12+) |
+| Flag | Description |
+|------|-------------|
+| `--agent AGENT` | Agent to use *(required)* |
+| `--model MODEL` | Model name (e.g., `claude-sonnet-4-5-20250929`) |
+| `--enable-mcp` | Enable MCP server for screenshot capabilities *(macOS only)* |
+| `--use-runtime-video` | Append Godot runtime instructions to prompts |
+| `--skip-display` | Skip tasks that require a display |
+| `run --task-list FILE` | Task list YAML (e.g., `tasks.yaml`) |
 
-#### Command-Line Options
+### Platform Notes
 
-| Option | Description |
-|--------|-------------|
-| `--agent AGENT` | Agent to use (required) |
-| `--model MODEL` | Model name (e.g., `claude-sonnet-4.5-20250929`) |
-| `--enable-mcp` | Enable MCP server for screenshot capabilities |
-| `--use-runtime-video` | Enable runtime video mode with Godot runtime instructions |
-| `--skip-display` | Skip tasks that require display |
-| `run --task-list FILE` | Run tasks from YAML file (e.g., `tasks.yaml`) |
-
-## Platform Limitations
-
-- MCP server screenshot functionality (`--enable-mcp`) currently only works on **macOS**
-  - Uses AppleScript for display capture
-  - Requires setting `GODOT_SCREENSHOT_DISPLAY` environment variable to correct display number
+MCP screenshot functionality (`--enable-mcp`) requires **macOS** with AppleScript. Set `GODOT_SCREENSHOT_DISPLAY` to the correct display number.
 
 ## Results
 
-Benchmark results are saved to `results/` directory with the following information:
-- Task success/failure status
-- Token usage and costs
-- Execution time
-- Validation results
+The official ICML 2026 camera-ready results are included in [`results/`](results/) — one JSON per (agent, model, feedback) configuration with per-task pass/fail status, token usage, costs, and durations, plus a [`leaderboard.csv`](results/leaderboard.csv) summary. New benchmark runs are also saved to `results/`.
+
+| Rank | Model | Harness | Feedback | pass@1 (%) |
+|-----:|-------|---------|----------|-----------:|
+| 1 | gemini-3-pro-preview | Gemini CLI | Screenshot + Video | **53.8** |
+| 2 | gpt-5.4 | Codex | Screenshot + Video | 52.0 |
+| 3 | gemini-3-flash-preview | Gemini CLI | Video | 46.9 |
+| 4 | gpt-5.4-mini | Codex | Video | 43.2 |
+| 5 | gpt-5.4-mini | OpenHands | Baseline | 38.4 |
+| 6 | claude-sonnet-4-5 | Claude Code | Screenshot + Video | 34.8 |
+| 7 | gemini-3-flash-preview | OpenHands | Screenshot + Video | 31.8 |
+| 8 | kimi-k2.5 | OpenHands | Screenshot + Video | 20.7 |
+| 9 | claude-haiku-4-5 | Claude Code | Video | 18.6 |
+| 10 | claude-haiku-4-5 | OpenHands | Screenshot + Video | 17.7 |
+| 11 | qwen3.5-397b | OpenHands | Baseline | 5.4 |
+
+*Best-performing multimodal feedback configuration per model + harness pair. Screenshot = editor screenshot MCP server; Video = runtime gameplay video instructions. See the [project page](https://waynechi.com/gamedevbench) for the full leaderboard.*
 
 ## Citation
 
@@ -123,3 +139,5 @@ If you find GameDevBench useful, please cite our paper:
 ```
 
 ## License
+
+This project is licensed under the [Apache License 2.0](LICENSE).

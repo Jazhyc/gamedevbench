@@ -10,11 +10,10 @@ requires-python = ">=3.10"
 dependencies = [
     "mcp",
     "pyautogui",
-    "claude-code-sdk",
+    "claude-agent-sdk",
     "pillow",
     "openhands-sdk; python_version >= '3.12'",
     "openhands-tools; python_version >= '3.12'",
-    "brokenaxes>=0.6.2",
 ]
 
 [project.scripts]

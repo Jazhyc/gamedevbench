@@ -9,10 +9,29 @@ import time
 import os
 from typing import Optional
 
-from claude_code_sdk import query, ClaudeCodeOptions
 from gamedevbench.src.base_solver import BaseSolver
 from gamedevbench.src.utils.data_types import SolverResult, TokenUsage
 from gamedevbench.src.utils.prompts import create_system_prompt
+
+import claude_agent_sdk._internal.message_parser as mp
+_original = mp.parse_message
+
+def _tolerant_parse(data):
+    try:
+        return _original(data)
+    except mp.MessageParseError as e:
+        if "Unknown message type" in str(e):
+            return None
+        raise
+
+mp.parse_message = _tolerant_parse
+
+# Also patch the client module's imported reference
+import claude_agent_sdk.client as client_mod
+if hasattr(client_mod, 'parse_message'):
+    client_mod.parse_message = _tolerant_parse
+
+from claude_agent_sdk import query, ClaudeAgentOptions
 
 
 class ClaudeCodeSolver(BaseSolver):
@@ -99,7 +118,7 @@ class ClaudeCodeSolver(BaseSolver):
                     "mcp__godot-screenshot__godot-screenshot"
                 ]
 
-            options = ClaudeCodeOptions(**options_kwargs)
+            options = ClaudeAgentOptions(**options_kwargs)
 
             full_response = []
             token_usage = TokenUsage()
@@ -153,6 +172,7 @@ class ClaudeCodeSolver(BaseSolver):
         except Exception as e:
             duration = time.time() - start_time
             error_msg = str(e)
+            breakpoint()
             is_rate_limited = self.is_rate_limit_error(error_msg)
 
             if self.debug:

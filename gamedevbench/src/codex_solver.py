@@ -9,7 +9,7 @@ import time
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from gamedevbench.src.base_solver import BaseSolver
 from gamedevbench.src.utils.data_types import SolverResult, TokenUsage
@@ -28,8 +28,8 @@ class CodexSolver(BaseSolver):
         debug: bool = False,
         use_mcp: bool = False,
         model: Optional[str] = None,
-        approval_policy: str = "never",      # never | auto-edit | full-auto
-        sandbox: str = "workspace-write",    # read-only | workspace-write | danger-full-access
+        approval_policy: str = "never",      # untrusted | on-request | never
+        sandbox: str = "danger-full-access",  # read-only | workspace-write | danger-full-access
         use_runtime_video: bool = False,
     ):
         # Call parent constructor (handles MCP validation)
@@ -72,6 +72,71 @@ args = ["run", "gamedevbench-mcp"]
                 print(f"Created Codex config at {config_file}")
 
     @staticmethod
+    def _coerce_int(value: Any) -> int:
+        """Best-effort conversion for token counters from CLI JSON output."""
+        if value is None:
+            return 0
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(float(value))
+            except ValueError:
+                return 0
+        return 0
+
+    def _extract_usage_from_mapping(self, payload: Optional[dict]) -> Optional[TokenUsage]:
+        """Extract token usage from one Codex JSON object."""
+        if not isinstance(payload, dict):
+            return None
+
+        usage = payload.get("usage")
+        if not isinstance(usage, dict):
+            for key in ("payload", "event", "item"):
+                nested = payload.get(key)
+                if isinstance(nested, dict):
+                    nested_usage = self._extract_usage_from_mapping(nested)
+                    if nested_usage:
+                        return nested_usage
+            usage = payload
+
+        input_details = usage.get("input_tokens_details", {})
+
+        input_tokens = self._coerce_int(
+            usage.get("input_tokens") or usage.get("prompt_tokens")
+        )
+        output_tokens = self._coerce_int(
+            usage.get("output_tokens") or usage.get("completion_tokens")
+        )
+        total_tokens = self._coerce_int(usage.get("total_tokens"))
+        cache_read_tokens = self._coerce_int(
+            usage.get("cache_read_input_tokens")
+            or usage.get("cached_input_tokens")
+            or usage.get("cached_tokens")
+            or (input_details.get("cached_tokens") if isinstance(input_details, dict) else 0)
+        )
+        cache_write_tokens = self._coerce_int(
+            usage.get("cache_creation_input_tokens")
+            or usage.get("cache_write_input_tokens")
+        )
+
+        if total_tokens == 0 and (input_tokens > 0 or output_tokens > 0):
+            total_tokens = input_tokens + output_tokens
+
+        if total_tokens == 0 and cache_read_tokens == 0 and cache_write_tokens == 0:
+            return None
+
+        return TokenUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+        )
+
+    @staticmethod
     def is_rate_limit_error(error_message: str) -> bool:
         """Check if the error message indicates API rate limit."""
         error_lower = error_message.lower()
@@ -103,19 +168,17 @@ args = ["run", "gamedevbench-mcp"]
 
         try:
             # Build codex exec command
-            cmd = [
-                "codex",
-                "--model", 
-                self.model,
-                "exec",
-                "--skip-git-repo-check",
-                "--yolo",
-                "-s", 
-                "danger-full-access",
-                "-C", 
-                str(os.getcwd()),
-                prompt,
-            ]
+            cmd = ["codex"]
+
+            if self.approval_policy:
+                cmd.extend(["-a", self.approval_policy])
+
+            cmd.extend(["exec", "--skip-git-repo-check", "--json"])
+
+            if self.model:
+                cmd.extend(["-m", self.model])
+
+            cmd.extend(["-s", self.sandbox, "-C", str(os.getcwd()), prompt])
 
             if self.debug:
                 cmd_str = " ".join([c if " " not in c else f'"{c}"' for c in cmd[:-1]])
@@ -148,7 +211,7 @@ args = ["run", "gamedevbench-mcp"]
             # Parse final response and token usage
             final_response = self._parse_final_response(stdout)
             token_usage = self._parse_token_usage(stdout)
-            model_used = self.model
+            model_used = self._parse_model_name(stdout) or self.model or "codex"
 
             # Calculate cost
             cost_usd = 0.0
@@ -267,11 +330,31 @@ args = ["run", "gamedevbench-mcp"]
                 continue
         return final_response
 
+    def _parse_model_name(self, output: str) -> Optional[str]:
+        """Parse JSON Lines output to get the model name."""
+        for line in output.strip().split("\n"):
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+                for candidate in (
+                    event.get("model"),
+                    event.get("modelName"),
+                    event.get("usage", {}).get("model") if isinstance(event.get("usage"), dict) else None,
+                    event.get("payload", {}).get("model") if isinstance(event.get("payload"), dict) else None,
+                ):
+                    if candidate:
+                        return candidate
+            except json.JSONDecodeError:
+                continue
+        return None
+
     def _parse_token_usage(self, output: str) -> Optional[TokenUsage]:
         """Parse JSON Lines output to get token usage."""
-        total_input = 0
-        total_output = 0
-        total_cached = 0
+        fallback_input = 0
+        fallback_output = 0
+        fallback_cached = 0
+        terminal_usage = None
 
         for line in output.strip().split("\n"):
             if not line:
@@ -280,45 +363,43 @@ args = ["run", "gamedevbench-mcp"]
                 event = json.loads(line)
                 event_type = event.get("type", "")
 
-                # Codex JSON output may have token_count events or usage in turn.completed
+                if event_type in {"turn.completed", "response.completed"}:
+                    usage = self._extract_usage_from_mapping(event)
+                    if usage:
+                        terminal_usage = usage
+                        continue
+
                 if event_type == "token_count":
-                    # Handle token_count event type
-                    total_input += event.get("input_tokens", 0)
-                    total_output += event.get("output_tokens", 0)
-                    total_cached += event.get("cached_tokens", 0)
-                elif event_type == "turn.completed":
-                    # Check for usage info in turn.completed
-                    usage = event.get("usage", {})
-                    if usage:
-                        total_input += usage.get("input_tokens", 0)
-                        total_output += usage.get("output_tokens", 0)
-                        total_cached += usage.get("cached_tokens", 0)
-                elif event_type == "response.completed":
-                    # Alternative: response.completed may have usage
-                    usage = event.get("usage", {})
-                    if usage:
-                        total_input += usage.get("input_tokens", 0)
-                        total_output += usage.get("output_tokens", 0)
-                        total_cached += usage.get("cache_read_input_tokens", 0)
+                    fallback_input += self._coerce_int(event.get("input_tokens"))
+                    fallback_output += self._coerce_int(event.get("output_tokens"))
+                    fallback_cached += self._coerce_int(
+                        event.get("cached_tokens") or event.get("cache_read_input_tokens")
+                    )
+                    continue
 
                 # Also check payload.type for nested events
                 payload = event.get("payload", {})
                 if isinstance(payload, dict):
                     payload_type = payload.get("type", "")
                     if payload_type == "token_count":
-                        total_input += payload.get("input_tokens", 0)
-                        total_output += payload.get("output_tokens", 0)
-                        total_cached += payload.get("cached_tokens", 0)
+                        fallback_input += self._coerce_int(payload.get("input_tokens"))
+                        fallback_output += self._coerce_int(payload.get("output_tokens"))
+                        fallback_cached += self._coerce_int(
+                            payload.get("cached_tokens") or payload.get("cache_read_input_tokens")
+                        )
 
             except json.JSONDecodeError:
                 continue
 
-        if total_input > 0 or total_output > 0:
+        if terminal_usage:
+            return terminal_usage
+
+        if fallback_input > 0 or fallback_output > 0:
             return TokenUsage(
-                input_tokens=total_input,
-                output_tokens=total_output,
-                total_tokens=total_input + total_output,
-                cache_read_tokens=total_cached,
+                input_tokens=fallback_input,
+                output_tokens=fallback_output,
+                total_tokens=fallback_input + fallback_output,
+                cache_read_tokens=fallback_cached,
                 cache_write_tokens=0,
             )
         return None

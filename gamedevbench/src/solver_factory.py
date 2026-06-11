@@ -94,7 +94,11 @@ class SolverFactory:
 
         # Add model parameter for solvers that support it
         if agent in ["claude-code", "mini-swe", "openhands", "gemini-cli", "codex"]:
-            if model:
+            should_pass_model = bool(model)
+            if agent in ["gemini-cli", "codex"] and model == "claude":
+                should_pass_model = False
+
+            if should_pass_model:
                 kwargs["model"] = model
 
         # Add use_mcp for solvers that support it

@@ -6,6 +6,7 @@ import argparse
 import os
 import shutil
 import csv
+import re
 import yaml
 import tempfile
 import uuid
@@ -39,6 +40,7 @@ class GodotBenchmarkRunner:
         resume_from: Optional[str] = None,
         skip_display: bool = False,
         use_runtime_video: bool = False,
+        run_name: Optional[str] = None,
     ):
         """
         Initialize the benchmark runner.
@@ -53,6 +55,7 @@ class GodotBenchmarkRunner:
             resume_from: Path to a results JSON file to resume from (skips solver_success=true, redoes solver_success=false)
             skip_display: Skip tasks that require display (requires_display=true in task_config.json)
             use_runtime_video: Enable runtime video mode (appends Godot runtime instructions to prompts)
+            run_name: Optional name used to isolate result files for this run
         """
         self.godot_path = GODOT_EXEC_PATH
         if use_gt:
@@ -63,9 +66,23 @@ class GodotBenchmarkRunner:
         self.model = model
         self.debug = debug
         self.resume = resume
+        self.run_name = run_name.strip() if run_name else None
+        self.safe_run_name = (
+            self._sanitize_run_name(self.run_name) if self.run_name else None
+        )
+        self.results_dir = (
+            RESULTS_FOLDER / self.safe_run_name
+            if self.safe_run_name
+            else RESULTS_FOLDER
+        )
+        self.test_results_dir = (
+            self.tasks_dir / "test_result" / self.safe_run_name
+            if self.safe_run_name
+            else self.tasks_dir / "test_result"
+        )
         # Sanitize model for filesystem (litellm models often include '/')
         safe_model = model.replace("/", "_") if model else "default"
-        self.progress_file = RESULTS_FOLDER / f"progress_{agent}_{safe_model}.json"
+        self.progress_file = self.results_dir / f"progress_{agent}_{safe_model}.json"
         self.use_mcp = use_mcp
         self.resume_from = resume_from
         self.skip_display = skip_display
@@ -74,6 +91,15 @@ class GodotBenchmarkRunner:
         # Validate agent configuration early if agent is specified
         if self.agent:
             self._validate_agent_configuration()
+
+    @staticmethod
+    def _sanitize_run_name(run_name: Optional[str]) -> str:
+        """Sanitize a user-provided run name for safe filesystem use."""
+        if not run_name:
+            return ""
+        sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", run_name.strip())
+        sanitized = sanitized.strip("._-")
+        return sanitized or "run"
 
     def _validate_agent_configuration(self):
         """
@@ -124,7 +150,7 @@ class GodotBenchmarkRunner:
 
     def _save_progress(self, completed_tasks: List[str], results: List[Dict]):
         """Save progress to a JSON file."""
-        RESULTS_FOLDER.mkdir(exist_ok=True)
+        self.results_dir.mkdir(parents=True, exist_ok=True)
         progress_data = {
             "completed_tasks": completed_tasks,
             "results": results,
@@ -343,7 +369,7 @@ script = ExtResource("test_script")
 
         if not project_file.exists():
             result = ValidationResult(False, f"Task '{task_name}' not found")
-            ValidationParser.save_result_to_json(task_name, result, RESULTS_FOLDER)
+            ValidationParser.save_result_to_json(task_name, result, self.results_dir)
             return result
 
         # Check if task requires display
@@ -398,17 +424,17 @@ script = ExtResource("test_script")
             result = ValidationParser.parse_output(output, debug=self.debug)
 
             # Save result to JSON file
-            ValidationParser.save_result_to_json(task_name, result, RESULTS_FOLDER)
+            ValidationParser.save_result_to_json(task_name, result, self.results_dir)
 
             return result
 
         except subprocess.TimeoutExpired:
             result = ValidationResult(False, "Validation timed out")
-            ValidationParser.save_result_to_json(task_name, result, RESULTS_FOLDER)
+            ValidationParser.save_result_to_json(task_name, result, self.results_dir)
             return result
         except Exception as e:
             result = ValidationResult(False, f"Error running validation: {e}")
-            ValidationParser.save_result_to_json(task_name, result, RESULTS_FOLDER)
+            ValidationParser.save_result_to_json(task_name, result, self.results_dir)
             return result
 
     def run_benchmark(self, task_name: str) -> Dict:
@@ -684,7 +710,7 @@ script = ExtResource("test_script")
 
             # Save to results folder
             ValidationParser.save_result_to_json(
-                task_name, validation_result, RESULTS_FOLDER
+                task_name, validation_result, self.results_dir
             )
 
             return validation_result
@@ -698,8 +724,8 @@ script = ExtResource("test_script")
         self, task_dir: Path, task_name: str, validation_result=None, solver_result=None
     ):
         """Save current task state and validation result to test_result folder in parent directory."""
-        # Save to tasks/test_result/ instead of tasks/task_xxxx/test_result/
-        result_dir = self.tasks_dir / "test_result"
+        # Save to tasks/test_result[/run_name]/ instead of tasks/task_xxxx/test_result/
+        result_dir = self.test_results_dir
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         result_subdir = result_dir / f"{task_name}_{self.agent}_{timestamp}"
 
@@ -999,20 +1025,20 @@ script = ExtResource("test_script")
             final_results["remaining_tasks"] = len(self.list_tasks()) - total_tasks
 
         # Save final results to JSON
-        RESULTS_FOLDER.mkdir(exist_ok=True)
-        final_results_path = RESULTS_FOLDER / "final_results.json"
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+        final_results_path = self.results_dir / "final_results.json"
         with open(final_results_path, "w") as f:
             json.dump(final_results, f, indent=2)
 
         # Also save to agent-model-specific file if agent is specified
         if self.agent:
             safe_model = self.model.replace("/", "_") if self.model else "default"
-            agent_model_results_path = RESULTS_FOLDER / f"{self.agent}_{safe_model}_final_results.json"
+            agent_model_results_path = self.results_dir / f"{self.agent}_{safe_model}_final_results.json"
             with open(agent_model_results_path, "w") as f:
                 json.dump(final_results, f, indent=2)
 
         # Save results to CSV
-        csv_path = RESULTS_FOLDER / "final_results.csv"
+        csv_path = self.results_dir / "final_results.csv"
         self._save_results_to_csv(results, csv_path)
 
     def load_tasks_from_file(self, file_path: str) -> List[str]:
@@ -1099,10 +1125,13 @@ script = ExtResource("test_script")
 
             if not tasks:
                 print("No tasks to run!")
-                # Return existing results
+                # Save and return existing results
                 success_count = sum(1 for r in results if r.get("success", False))
                 skipped_count_existing = sum(1 for r in results if r.get("skipped", False))
                 failure_count = len(results) - success_count - skipped_count_existing
+                self._save_final_results(
+                    success_count, failure_count, 0, skipped_count_existing, results
+                )
                 return self._create_final_results_summary(
                     success_count, failure_count, 0, skipped_count_existing, len(results), results
                 )
@@ -1116,10 +1145,13 @@ script = ExtResource("test_script")
                 tasks = [t for t in tasks if t not in completed_tasks]
                 if not tasks:
                     print("All tasks already completed!")
-                    # Return existing results
+                    # Save and return existing results
                     success_count = sum(1 for r in results if r.get("success", False))
                     skipped_count_existing = sum(1 for r in results if r.get("skipped", False))
                     failure_count = len(results) - success_count - skipped_count_existing
+                    self._save_final_results(
+                        success_count, failure_count, 0, skipped_count_existing, results
+                    )
                     return self._create_final_results_summary(
                         success_count, failure_count, 0, skipped_count_existing, len(results), results
                     )
@@ -1211,20 +1243,20 @@ script = ExtResource("test_script")
             )
 
         # Save final results to JSON
-        RESULTS_FOLDER.mkdir(exist_ok=True)
-        final_results_path = RESULTS_FOLDER / "final_results.json"
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+        final_results_path = self.results_dir / "final_results.json"
         with open(final_results_path, "w") as f:
             json.dump(final_results, f, indent=2)
 
         # Also save to agent-model-specific file if agent is specified
         if self.agent:
             safe_model = self.model.replace("/", "_") if self.model else "default"
-            agent_model_results_path = RESULTS_FOLDER / f"{self.agent}_{safe_model}_final_results.json"
+            agent_model_results_path = self.results_dir / f"{self.agent}_{safe_model}_final_results.json"
             with open(agent_model_results_path, "w") as f:
                 json.dump(final_results, f, indent=2)
 
         # Save results to CSV
-        csv_path = RESULTS_FOLDER / "final_results.csv"
+        csv_path = self.results_dir / "final_results.csv"
         self._save_results_to_csv(results, csv_path)
 
         print(f"Final results saved to: {final_results_path}")
@@ -1312,6 +1344,7 @@ script = ExtResource("test_script")
                 "use_runtime_video": self.use_runtime_video,
                 "skip_display": self.skip_display,
                 "debug": self.debug,
+                "run_name": self.run_name,
             },
             # Token usage statistics
             "token_statistics": {
@@ -1435,6 +1468,11 @@ def main():
         help="Enable runtime video mode (appends Godot runtime instructions to prompts)",
         action="store_true",
     )
+    parser.add_argument(
+        "--run-name",
+        help="Optional name used to isolate outputs under results/<run_name>/ and tasks/test_result/<run_name>/",
+        type=str,
+    )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # List command
@@ -1478,6 +1516,7 @@ def main():
         resume_from=args.resume_from if hasattr(args, "resume_from") else None,
         skip_display=args.skip_display,
         use_runtime_video=args.use_runtime_video,
+        run_name=args.run_name,
     )
 
     if args.command == "list":

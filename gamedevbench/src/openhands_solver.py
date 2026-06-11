@@ -112,9 +112,6 @@ class OpenHandsSolver(BaseSolver):
             if self.model.startswith("openrouter/"):
                 api_key = os.environ.get("OPENROUTER_API_KEY")
                 key_name = "OPENROUTER_API_KEY"
-            elif self.model.startswith("fireworks_ai/") or self.model.startswith("fireworks/"):
-                api_key = os.environ.get("FIREWORKS_API_KEY")
-                key_name = "FIREWORKS_API_KEY"
             elif self.model.startswith("anthropic/"):
                 api_key = os.environ.get("ANTHROPIC_API_KEY")
                 key_name = "ANTHROPIC_API_KEY"
@@ -138,20 +135,14 @@ class OpenHandsSolver(BaseSolver):
                 print("=" * 60)
 
             # Configure LLM with vision-capable model
-            # Explicitly cap max_output_tokens to avoid models like kimi-k2.5 where
-            # litellm reports max_output_tokens == context_window (262144), making
-            # any request with input tokens exceed the total context limit.
-            llm_kwargs = dict(
+            llm = LLM(
                 model=self.model,
                 api_key=SecretStr(api_key),
                 temperature=0.0,
                 base_url=self.api_base,
-                max_output_tokens=32768,
+                openrouter_site_url=self.openrouter_site_url or "https://docs.all-hands.dev/",
+                openrouter_app_name=self.openrouter_app_name or "OpenHands",
             )
-            if self.model.startswith("openrouter/"):
-                llm_kwargs["openrouter_site_url"] = self.openrouter_site_url or "https://docs.all-hands.dev/"
-                llm_kwargs["openrouter_app_name"] = self.openrouter_app_name or "OpenHands"
-            llm = LLM(**llm_kwargs)
 
             mcp_config = {
                 "mcpServers": {

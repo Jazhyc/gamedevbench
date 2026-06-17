@@ -250,6 +250,10 @@ mono_crash.*.json
 
 results/*
 .claude/*
+# Share project-level Claude Code setup; keep personal overrides local.
+!.claude/settings.json
+!.claude/hooks/
+!.claude/skills/
 runs/*
 scripts/youtube_data_codex/**/repo
 scripts/youtube_data_codex_2/**/repo

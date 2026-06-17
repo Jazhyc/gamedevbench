@@ -82,6 +82,9 @@ lists the active task ids. Tasks ship zipped to prevent train/eval leakage.
   (new agent/solver, new MCP integration, new flag/flow), **update CLAUDE.md in
   the same commit**. A Stop hook reminds you if you try to finish with
   uncommitted changes.
+- **Test every new feature.** When adding a feature, add or update tests in
+  `tests/` for it and run `uv run pytest` (must pass) before committing — keep
+  it green so the suite stays a reliable regression guard.
 - **Keep CLAUDE.md lean.** When it grows past ~400 lines, move detailed
   reference into `docs/*.md` and leave a one-line pointer here. The Stop hook
   flags this automatically.

@@ -81,8 +81,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--task-list", default=str(REPO / "tasks.yaml"))
     ap.add_argument("--tasks", nargs="*", help="explicit task names (overrides --task-list)")
+    # Each task is ~one warm Godot launch + a Python spawn, so throughput scales
+    # with cores. Cap at 16 to bound RAM (each Godot headless is a few hundred MB)
+    # while still using a many-core box; override with --workers.
     ap.add_argument("--workers", type=int,
-                    default=max(1, min(8, (os.cpu_count() or 4) - 2)))
+                    default=max(1, min(16, (os.cpu_count() or 4) - 2)))
     args = ap.parse_args()
 
     tasks = args.tasks or yaml.safe_load(open(args.task_list))["tasks"]

@@ -31,7 +31,7 @@ uv run python gamedevbench/src/benchmark_runner.py \
 | Flag | Effect |
 |------|--------|
 | `--model` | claude-code: model id; mini-swe: `claude`/`gpt`; openhands/gemini-cli: model id; ignored for codex |
-| `--enable-mcp` | Enable an MCP server for supported solvers (`SUPPORTS_MCP`). The bundled screenshot server is **macOS-only**. This is the flag to use when comparing Godot-specific MCPs vs generic tooling — see CLAUDE.md. |
+| `--enable-mcp` | Enable an MCP server for supported solvers (`SUPPORTS_MCP`). The bundled screenshot server is **cross-platform** (Windows/macOS/Linux via mss). This is the flag to use when comparing Godot-specific MCPs vs generic tooling — see CLAUDE.md. |
 | `--use-runtime-video` | Append Godot runtime (render-to-image/movie) instructions to the prompt |
 | `--skip-display` | Skip tasks with `requires_display=true` |
 | `--run-name NAME` | Isolate outputs under `results/<NAME>/` — use a descriptive name per config so runs don't collide |

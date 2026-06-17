@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """
 MCP Server for Godot screenshot functionality.
-Launches Godot editor on specified screen and captures screenshots using AppleScript.
+Launches the Godot editor on a specified screen and captures a screenshot of
+that monitor. Capture is cross-platform (Windows/macOS/Linux) via `mss`.
 """
 
 import asyncio
 import subprocess
 import os
-import sys
 import base64
-import tempfile
-import json
-import re
 from pathlib import Path
 from typing import Any, Dict
+
+import mss
 from PIL import Image
 from io import BytesIO
 
@@ -146,19 +145,42 @@ def compress_screenshot(image_bytes: bytes, target_size_kb: int = MAX_TARGET_SIZ
     img.convert('RGB').save(output, format='JPEG', quality=60, optimize=True)
     return output.getvalue(), "image/jpeg"
 
+def capture_display(display: int) -> bytes:
+    """Capture a single monitor as PNG bytes, cross-platform via mss.
+
+    `display` uses mss's 1-indexed monitor convention: 1 = primary monitor,
+    2 = second monitor, and so on (index 0 is the combined virtual screen).
+    Falls back to the primary monitor when the requested index is out of range
+    (e.g. a single-monitor machine asked for display 2).
+    """
+    with mss.MSS() as sct:
+        monitors = sct.monitors  # [0] = all monitors combined, [1..] = each one
+        if display < 1 or display >= len(monitors):
+            print(f"Display {display} unavailable "
+                  f"({len(monitors) - 1} monitor(s) detected); using primary.")
+            display = 1 if len(monitors) > 1 else 0
+        shot = sct.grab(monitors[display])
+
+    img = Image.frombytes("RGB", shot.size, shot.rgb)
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 async def launch_godot_and_screenshot(project_dir: str, display: int = DEFAULT_TARGET_DISPLAY) -> tuple[str, str]:
-    """Launch Godot editor on specified display and take a screenshot using AppleScript.
+    """Launch the Godot editor on a screen and screenshot that monitor.
 
     Args:
         project_dir: Path to the Godot project directory
-        display: Display number to use (Godot screen = display - 1)
+        display: Monitor to capture (Godot opens fullscreen on screen display - 1)
 
     Returns:
         Tuple of (base64_screenshot_data, mime_type)
     """
 
-    # Launch Godot editor on specific screen
-    # Godot screen numbering: Display N = Screen N-1
+    # Launch Godot editor on a specific screen.
+    # Godot's --screen is 0-indexed; capture uses mss's 1-indexed monitors, so
+    # screen N-1 corresponds to monitor N.
     godot_screen = display - 1
     godot_cmd = [
         "godot",
@@ -172,6 +194,7 @@ async def launch_godot_and_screenshot(project_dir: str, display: int = DEFAULT_T
 
     print(f"Launching Godot on screen {godot_screen} (Display {display})")
 
+    godot_process = None
     try:
         # Start Godot process
         godot_process = subprocess.Popen(
@@ -185,98 +208,36 @@ async def launch_godot_and_screenshot(project_dir: str, display: int = DEFAULT_T
         print(f"Waiting {GODOT_LOAD_WAIT_TIME} seconds for Godot to load...")
         await asyncio.sleep(GODOT_LOAD_WAIT_TIME)
 
-        # Create a temporary file for the screenshot
-        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
-            screenshot_path = tmp_file.name
-
-        # AppleScript to capture the specified display
-        applescript = f'''
-        do shell script "screencapture -D{display} '{screenshot_path}'"
-        '''
-
+        # Capture the target monitor (in-memory, no temp file)
         print(f"Taking screenshot of Display {display}")
-
-        # Execute AppleScript
-        result = subprocess.run(
-            ['osascript', '-e', applescript],
-            capture_output=True,
-            text=True
-        )
-
-        if result.returncode != 0:
-            error_msg = result.stderr
-            print(f"Screenshot failed on Display {display}: {error_msg}")
-            
-            # Check if it's an invalid display error
-            if "Invalid display" in error_msg and display != 1:
-                print("Retrying with Display 1...")
-                # Update Godot window to screen 0 (Display 1) if possible? 
-                # Godot is already running on the other screen, but we just want to capture *a* screen.
-                # Ideally we should restart Godot on screen 0, but that takes time. 
-                # Let's just try to capture Display 1 (maybe Godot defaulted there if the other screen was invalid?)
-                
-                applescript_retry = f'''
-                do shell script "screencapture -D1 '{screenshot_path}'"
-                '''
-                result_retry = subprocess.run(
-                    ['osascript', '-e', applescript_retry],
-                    capture_output=True,
-                    text=True
-                )
-                
-                if result_retry.returncode != 0:
-                    # Clean up Godot process
-                    if godot_process.poll() is None:
-                        godot_process.terminate()
-                        await asyncio.sleep(0.5)
-                        if godot_process.poll() is None:
-                            godot_process.kill()
-                    return f"Error: Failed to capture screenshot (retry failed): {result_retry.stderr}"
-            else:
-                # Clean up Godot process
-                if godot_process.poll() is None:
-                    godot_process.terminate()
-                    await asyncio.sleep(0.5)
-                    if godot_process.poll() is None:
-                        godot_process.kill()
-                return f"Error: Failed to capture screenshot: {result.stderr}"
-
-        # Read the screenshot file, compress it, and convert to base64
         try:
-            with open(screenshot_path, 'rb') as f:
-                screenshot_bytes = f.read()
+            screenshot_bytes = capture_display(display)
+        except Exception as e:
+            return f"Error: Failed to capture screenshot: {e}"
 
-            print(f"Original screenshot size: {len(screenshot_bytes)} bytes")
+        print(f"Original screenshot size: {len(screenshot_bytes)} bytes")
 
-            # Compress the screenshot
-            compressed_bytes, mime_type = compress_screenshot(screenshot_bytes)
-            print(f"Compressed screenshot size: {len(compressed_bytes)} bytes")
+        # Compress the screenshot
+        compressed_bytes, mime_type = compress_screenshot(screenshot_bytes)
+        print(f"Compressed screenshot size: {len(compressed_bytes)} bytes")
 
-            # Encode to base64
-            screenshot_b64 = base64.b64encode(compressed_bytes).decode('utf-8')
-            base64_size_kb = len(screenshot_b64) / 1024
-            print(f"Base64 size: {base64_size_kb:.1f}KB")
-        finally:
-            # Clean up temporary file
-            if os.path.exists(screenshot_path):
-                os.remove(screenshot_path)
-
-        # Kill Godot process after screenshot
-        if godot_process.poll() is None:
-            godot_process.terminate()
-            await asyncio.sleep(0.5)
-            if godot_process.poll() is None:
-                godot_process.kill()
+        # Encode to base64
+        screenshot_b64 = base64.b64encode(compressed_bytes).decode('utf-8')
+        print(f"Base64 size: {len(screenshot_b64) / 1024:.1f}KB")
 
         return screenshot_b64, mime_type
 
     except FileNotFoundError:
         return "Error: Godot executable not found. Make sure Godot is installed and in your PATH."
     except Exception as e:
-        # Clean up Godot process in case of error
-        if 'godot_process' in locals() and godot_process.poll() is None:
-            godot_process.terminate()
         return f"Error launching Godot or taking screenshot: {str(e)}"
+    finally:
+        # Always clean up the Godot process so the task never hangs
+        if godot_process is not None and godot_process.poll() is None:
+            godot_process.terminate()
+            await asyncio.sleep(0.5)
+            if godot_process.poll() is None:
+                godot_process.kill()
 
 async def run_server():
     """Run the MCP server."""

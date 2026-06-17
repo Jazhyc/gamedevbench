@@ -93,14 +93,14 @@ uv run python gamedevbench/src/benchmark_runner.py \
 |------|-------------|
 | `--agent AGENT` | Agent to use *(required)* |
 | `--model MODEL` | Model name (e.g., `claude-sonnet-4-5-20250929`) |
-| `--enable-mcp` | Enable MCP server for screenshot capabilities *(macOS only)* |
+| `--enable-mcp` | Enable MCP server for screenshot capabilities *(cross-platform)* |
 | `--use-runtime-video` | Append Godot runtime instructions to prompts |
 | `--skip-display` | Skip tasks that require a display |
 | `run --task-list FILE` | Task list YAML (e.g., `tasks.yaml`) |
 
 ### Platform Notes
 
-MCP screenshot functionality (`--enable-mcp`) requires **macOS** with AppleScript. Set `GODOT_SCREENSHOT_DISPLAY` to the correct display number.
+MCP screenshot functionality (`--enable-mcp`) is **cross-platform** (Windows, macOS, Linux) via [`mss`](https://pypi.org/project/mss/). Set `GODOT_SCREENSHOT_DISPLAY` to the 1-indexed monitor to capture (`1` = primary); out-of-range values fall back to the primary monitor.
 
 ## Results
 

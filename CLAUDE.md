@@ -12,9 +12,9 @@ We are extending the harness to support **MCP servers that specifically target
 Godot development** and measuring how they stack up against generic, non-Godot
 tooling. Concretely:
 
-- The current `--enable-mcp` path wires in one bundled, macOS-only screenshot
-  MCP server (`gamedevbench/src/mcp_server.py`). Treat that as the *baseline*
-  MCP integration to generalize from.
+- The current `--enable-mcp` path wires in one bundled, cross-platform
+  screenshot MCP server (`gamedevbench/src/mcp_server.py`, capture via `mss`).
+  Treat that as the *baseline* MCP integration to generalize from.
 - New Godot-targeted MCP servers should be selectable per run and isolated with
   `--run-name` so each configuration's `results/` are directly comparable
   against a generic/no-MCP baseline.
@@ -52,7 +52,9 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
   registered only on Python 3.12+.
 - `*_solver.py` — one per agent (`claude_code`, `codex`, `gemini`, `openhands`,
   `mini_swe`).
-- `mcp_server.py` — the bundled Godot screenshot MCP server (macOS/AppleScript).
+- `mcp_server.py` — the bundled Godot screenshot MCP server. Launches the editor
+  fullscreen on a screen and captures that monitor; cross-platform via `mss`
+  (`GODOT_SCREENSHOT_DISPLAY`, 1-indexed, falls back to primary).
 - `utils/prompts.py` — `load_task_config()` + `create_task_prompt()`; prompt
   text for runtime-video and MCP guidance is injected here.
 - `utils/validation.py` — `ValidationParser` greps Godot output for

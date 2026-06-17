@@ -36,3 +36,20 @@ def resolve_provider_api_key(model: str) -> Tuple[Optional[str], str]:
                 return key, "GEMINI_API_KEY or GOOGLE_API_KEY"
             return os.environ.get(env_name), env_name
     return os.environ.get(_DEFAULT_ENV), _DEFAULT_ENV
+
+
+def resolve_api_base(
+    model: str, explicit: Optional[str], openrouter_base: Optional[str]
+) -> Optional[str]:
+    """Return the base_url to use for a litellm model id.
+
+    An explicit override always wins. Otherwise the OpenRouter base URL is only
+    applied to OpenRouter-routed models (`openrouter/` prefix); native providers
+    such as `deepseek/` or `anthropic/` carry their own endpoints in litellm, so
+    forcing them onto OpenRouter would send a native key to the wrong host (401).
+    """
+    if explicit is not None:
+        return explicit
+    if model.startswith("openrouter/"):
+        return openrouter_base
+    return None

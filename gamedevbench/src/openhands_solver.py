@@ -22,7 +22,7 @@ from openhands.tools.preset.default import get_default_tools, get_default_conden
 from gamedevbench.src.base_solver import BaseSolver
 from gamedevbench.src.utils.data_types import SolverResult, TokenUsage
 from gamedevbench.src.utils.prompts import create_system_prompt
-from gamedevbench.src.utils.llm_keys import resolve_provider_api_key
+from gamedevbench.src.utils.llm_keys import resolve_api_base, resolve_provider_api_key
 
 
 logger = get_logger(__name__)
@@ -76,8 +76,12 @@ class OpenHandsSolver(BaseSolver):
         # Convert short model names to litellm format
         self.model = self.MODEL_MAPPING.get(model, model)
 
-        # Optional overrides
-        self.api_base = api_base or os.environ.get("OPENROUTER_API_BASE")
+        # Optional overrides. The OpenRouter base URL must only apply to
+        # OpenRouter-routed models; native providers (deepseek/, anthropic/, ...)
+        # carry their own endpoints in litellm.
+        self.api_base = resolve_api_base(
+            self.model, api_base, os.environ.get("OPENROUTER_API_BASE")
+        )
         self.openrouter_site_url = openrouter_site_url or os.environ.get("OR_SITE_URL")
         self.openrouter_app_name = openrouter_app_name or os.environ.get("OR_APP_NAME")
 

@@ -22,6 +22,7 @@ from openhands.tools.preset.default import get_default_tools, get_default_conden
 from gamedevbench.src.base_solver import BaseSolver
 from gamedevbench.src.utils.data_types import SolverResult, TokenUsage
 from gamedevbench.src.utils.prompts import create_system_prompt
+from gamedevbench.src.utils.llm_keys import resolve_provider_api_key
 
 
 logger = get_logger(__name__)
@@ -42,6 +43,9 @@ class OpenHandsSolver(BaseSolver):
         "gpt-4": "openai/gpt-4",
         "o1": "openai/o1",
         "o3": "openai/o3",
+        # DeepSeek via its native API (litellm `deepseek/` provider, DEEPSEEK_API_KEY)
+        "deepseek": "deepseek/deepseek-chat",
+        "deepseek-v4-pro": "deepseek/deepseek-v4-pro",
     }
 
     def __init__(
@@ -108,19 +112,8 @@ class OpenHandsSolver(BaseSolver):
             print("=" * 60)
 
         try:
-            # Get API key from environment based on model provider
-            if self.model.startswith("openrouter/"):
-                api_key = os.environ.get("OPENROUTER_API_KEY")
-                key_name = "OPENROUTER_API_KEY"
-            elif self.model.startswith("anthropic/"):
-                api_key = os.environ.get("ANTHROPIC_API_KEY")
-                key_name = "ANTHROPIC_API_KEY"
-            elif self.model.startswith("google/") or self.model.startswith("gemini/"):
-                api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-                key_name = "GEMINI_API_KEY or GOOGLE_API_KEY"
-            else:
-                api_key = os.environ.get("OPENAI_API_KEY")
-                key_name = "OPENAI_API_KEY"
+            # Get API key from environment based on model provider prefix
+            api_key, key_name = resolve_provider_api_key(self.model)
 
             if not api_key:
                 return SolverResult(

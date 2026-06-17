@@ -25,9 +25,17 @@ tooling. Concretely:
 
 ```bash
 uv sync                                   # install deps
+uv sync --extra dev                       # + test deps (pytest, pytest-mock)
 bash unzip_tasks.sh                       # tasks/task_XXXX/ + tasks_gt/task_XXXX/
+uv run pytest                             # fast offline regression suite (no Godot/API/display)
 uv run python validate_tasks.py           # sanity: all 333 ground truths must PASS
 ```
+
+`tests/` holds the offline unit suite (solver factory, prompts, validation
+parsing, cost math, the cross-platform mss capture with mss mocked, and the
+guardrail hooks). It needs no Godot, API keys, or display — run it before every
+commit to catch regressions. Heavier end-to-end checks stay in
+`validate_tasks.py` (needs Godot).
 
 Run the benchmark (long, billable — prefer the **/run-benchmark** skill):
 

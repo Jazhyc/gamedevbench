@@ -29,4 +29,8 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["tasks*", "results*", "scripts*", "gamedevbench_*", "auto_task_generation*", "youtube_documentation*", "anna*", "templates*", "runs*"]
+exclude = ["tasks*", "results*", "scripts*", "gamedevbench_*", "auto_task_generation*", "youtube_documentation*", "anna*", "templates*", "runs*", "tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

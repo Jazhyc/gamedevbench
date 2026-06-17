@@ -38,20 +38,32 @@ RUN_TIMEOUT = 700  # harness enforces 600s internally
 GODOT = os.environ.get("GODOT_EXEC_PATH", "godot")
 
 
+def needs_import(task_dir: Path) -> bool:
+    """Whether the --import warmup is worth running for this task.
+
+    Godot writes a `.godot/` cache on first import. When it already exists the
+    import pass is a no-op that still pays a full engine cold-start, so on warm
+    re-runs we skip it and let the validation launch import on demand. Ground
+    truths are immutable between runs, so a present cache is safe to trust.
+    """
+    return not (task_dir / ".godot").is_dir()
+
+
 def validate_one(task: str):
     start = time.time()
     result_file = RESULTS / f"task_{task}.json"
     result_file.unlink(missing_ok=True)  # never read a stale result
     # Import resources first: the harness's brief editor warmup is not long
-    # enough for asset-heavy projects, especially under parallel load.
-    # No-op when the .godot cache is already present and current.
-    try:
-        subprocess.run(
-            [GODOT, "--headless", "--import", "--path", str(REPO / "tasks_gt" / task)],
-            capture_output=True, timeout=300,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        pass  # validation below will surface any real problem
+    # enough for asset-heavy projects, especially under parallel load. Skip the
+    # extra cold-start when the .godot cache is already present (see needs_import).
+    if needs_import(REPO / "tasks_gt" / task):
+        try:
+            subprocess.run(
+                [GODOT, "--headless", "--import", "--path", str(REPO / "tasks_gt" / task)],
+                capture_output=True, timeout=300,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pass  # validation below will surface any real problem
     try:
         proc = subprocess.run(
             ["uv", "run", "--no-sync", "gamedevbench", "--gt", "validate", task],

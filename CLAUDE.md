@@ -51,8 +51,16 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
 
 - `gamedevbench/src/benchmark_runner.py` — CLI + orchestration. Global flags
   (`--agent`, `--model`, `--enable-mcp`, `--use-runtime-video`, `--skip-display`,
-  `--run-name`, `--resume[-from]`) + subcommands `list` / `open` / `validate` /
-  `run`. `--gt` operates on ground-truth tasks.
+  `--run-name`, `--resume[-from]`, `--workers`) + subcommands `list` / `open` /
+  `validate` / `run`. `--gt` operates on ground-truth tasks.
+  - `--workers N` (default 8) runs a `run --task-list` over **N tasks
+    concurrently, each in its own process** — required because the agent solve
+    step does a process-global `os.chdir` into its sandbox, so threads can't
+    isolate it. Per-task sandboxes/validation dirs are already unique, and
+    progress is checkpointed after each task (resume-safe). Forced to 1 when
+    `--enable-mcp` is set (the screenshot server grabs a whole monitor, so
+    parallel runs would collide). DeepSeek-text runs have no display contention,
+    so 8 is safe there.
 - `base_solver.py` — `BaseSolver` ABC. Subclasses set `SUPPORTS_MCP` /
   `SUPPORTS_SYSTEM_PROMPT` and implement `solve_task()` + `is_rate_limit_error()`.
 - `solver_factory.py` — `SolverFactory._SOLVER_REGISTRY` maps agent name → solver

@@ -10,6 +10,7 @@ import re
 import yaml
 import tempfile
 import uuid
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -33,6 +34,16 @@ from gamedevbench.src.utils.validation import ValidationParser
 from gamedevbench.src.solver_factory import SolverFactory
 
 
+def _run_task_in_worker(runner: "GodotBenchmarkRunner", task_name: str) -> Dict:
+    """Run a single task end-to-end in a worker process.
+
+    Defined at module level so it can be pickled and dispatched to a
+    ProcessPoolExecutor. Each worker gets its own process, which keeps the
+    solver's os.chdir into the sandbox isolated from sibling tasks.
+    """
+    return runner.run_benchmark(task_name)
+
+
 class GodotBenchmarkRunner:
     def __init__(
         self,
@@ -46,6 +57,7 @@ class GodotBenchmarkRunner:
         skip_display: bool = False,
         use_runtime_video: bool = False,
         run_name: Optional[str] = None,
+        workers: int = 1,
     ):
         """
         Initialize the benchmark runner.
@@ -61,6 +73,10 @@ class GodotBenchmarkRunner:
             skip_display: Skip tasks that require display (requires_display=true in task_config.json)
             use_runtime_video: Enable runtime video mode (appends Godot runtime instructions to prompts)
             run_name: Optional name used to isolate result files for this run
+            workers: Number of tasks to run concurrently. Each task runs in its
+                own process (the agent solve step relies on a process-global
+                os.chdir into the sandbox, so processes — not threads — are
+                required for isolation). Defaults to 1 (sequential).
         """
         self.godot_path = GODOT_EXEC_PATH
         if use_gt:
@@ -92,6 +108,18 @@ class GodotBenchmarkRunner:
         self.resume_from = resume_from
         self.skip_display = skip_display
         self.use_runtime_video = use_runtime_video
+        self.workers = max(1, int(workers))
+
+        # The bundled screenshot MCP server launches the Godot editor fullscreen
+        # and captures a whole monitor; running several in parallel would fight
+        # over the same display, so MCP runs are forced back to sequential.
+        if self.use_mcp and self.workers > 1:
+            print(
+                f"⚠️  MCP enabled — forcing workers=1 (was {self.workers}); the "
+                "screenshot server captures a full monitor and parallel runs "
+                "would collide."
+            )
+            self.workers = 1
 
         # Validate agent configuration early if agent is specified
         if self.agent:
@@ -1080,6 +1108,128 @@ script = ExtResource("test_script")
             print(f"Error reading task list file: {e}")
             return []
 
+    def _build_error_result(self, task_name: str, exc: Exception) -> Dict:
+        """Build a uniform result dict for a task that raised while running."""
+        error_result = ValidationResult(False, f"Error running task: {exc}")
+        return {
+            "task_name": task_name,
+            "success": error_result.success,
+            "message": error_result.message,
+            "timestamp": error_result.timestamp,
+            "agent": self.agent,
+            "model": self.model,
+            "use_mcp": self.use_mcp,
+            "use_runtime_video": self.use_runtime_video,
+            "skip_display": self.skip_display,
+            "debug": self.debug,
+        }
+
+    def _record_task_result(
+        self,
+        task_result: Dict,
+        results: List[Dict],
+        completed_tasks: List[str],
+        tally: Dict,
+        is_error: bool = False,
+    ):
+        """Tally a completed task, then checkpoint progress and final results.
+
+        Shared by the sequential and parallel runners so both keep identical
+        bookkeeping and crash-safe checkpointing after every task.
+        """
+        results.append(task_result)
+        completed_tasks.append(task_result["task_name"])
+
+        if is_error:
+            tally["error"] += 1
+        elif task_result.get("skipped", False):
+            tally["skipped"] += 1
+            print(f"  → Skipped: {task_result.get('message', 'Unknown reason')}")
+        elif task_result.get("success"):
+            tally["success"] += 1
+        else:
+            tally["failure"] += 1
+
+        if task_result.get("is_rate_limited"):
+            tally["rate_limited"] = True
+
+        # Checkpoint after every task so a crash/interrupt loses at most one task.
+        self._save_progress(completed_tasks, results)
+        self._save_final_results(
+            tally["success"], tally["failure"], tally["error"], tally["skipped"],
+            results, tally["rate_limited"],
+        )
+
+    def _print_rate_limit_stop(self, completed_tasks: List[str]):
+        print("\n" + "=" * 80)
+        print("⚠️  API RATE LIMIT/QUOTA EXCEEDED - STOPPING EXECUTION")
+        print("=" * 80)
+        print(f"Completed {len(completed_tasks)} tasks before rate limit.")
+        print(f"Progress saved to: {self.progress_file}")
+        print(f"Use --resume flag to continue from where you left off.")
+        print("=" * 80 + "\n")
+
+    def _run_tasks_sequential(
+        self, tasks: List[str], results: List[Dict], completed_tasks: List[str], tally: Dict
+    ):
+        """Run tasks one at a time, stopping early on a rate-limit error."""
+        for task_name in tasks:
+            print(f"Running benchmark for task: {task_name}")
+            try:
+                task_result = self.run_benchmark(task_name)
+            except Exception as e:
+                print(f"Error running task {task_name}: {e}")
+                self._record_task_result(
+                    self._build_error_result(task_name, e),
+                    results, completed_tasks, tally, is_error=True,
+                )
+                continue
+
+            self._record_task_result(task_result, results, completed_tasks, tally)
+            if tally["rate_limited"]:
+                self._print_rate_limit_stop(completed_tasks)
+                break
+
+    def _run_tasks_parallel(
+        self, tasks: List[str], results: List[Dict], completed_tasks: List[str], tally: Dict
+    ):
+        """Run tasks across a process pool.
+
+        Processes (not threads) are required because the agent solve step does a
+        process-global os.chdir into its sandbox. On a rate-limit error we cancel
+        any not-yet-started tasks; tasks already in flight are allowed to finish
+        and `--resume` picks up whatever is left.
+        """
+        total = len(tasks)
+        with ProcessPoolExecutor(max_workers=self.workers) as executor:
+            future_to_task = {
+                executor.submit(_run_task_in_worker, self, task_name): task_name
+                for task_name in tasks
+            }
+            for future in as_completed(future_to_task):
+                task_name = future_to_task[future]
+                try:
+                    task_result = future.result()
+                    self._record_task_result(task_result, results, completed_tasks, tally)
+                    status = "PASS" if task_result.get("success") else (
+                        "skip" if task_result.get("skipped") else "fail"
+                    )
+                except Exception as e:
+                    print(f"Error running task {task_name}: {e}")
+                    self._record_task_result(
+                        self._build_error_result(task_name, e),
+                        results, completed_tasks, tally, is_error=True,
+                    )
+                    status = "error"
+
+                print(f"  [{len(completed_tasks)}/{total}] {task_name}: {status}")
+
+                if tally["rate_limited"]:
+                    self._print_rate_limit_stop(completed_tasks)
+                    for f in future_to_task:
+                        f.cancel()
+                    break
+
     def run_all_tasks(self, task_list_file: Optional[str] = None) -> Dict:
         """
         Run validation on all available tasks and generate final results summary.
@@ -1161,78 +1311,27 @@ script = ExtResource("test_script")
                         success_count, failure_count, 0, skipped_count_existing, len(results), results
                     )
 
-        success_count = sum(1 for r in results if r.get("success", False))
-        failure_count = len(results) - success_count
-        error_count = 0
-        skipped_count = 0
-        rate_limited = False
+        tally = {
+            "success": sum(1 for r in results if r.get("success", False)),
+            "failure": 0,
+            "error": 0,
+            "skipped": 0,
+            "rate_limited": False,
+        }
+        tally["failure"] = len(results) - tally["success"]
 
-        print(f"Running validation on {len(tasks)} tasks...")
+        if self.workers > 1 and len(tasks) > 1:
+            print(f"Running {len(tasks)} tasks with {self.workers} parallel workers...")
+            self._run_tasks_parallel(tasks, results, completed_tasks, tally)
+        else:
+            print(f"Running validation on {len(tasks)} tasks...")
+            self._run_tasks_sequential(tasks, results, completed_tasks, tally)
 
-        for task_name in tasks:
-            try:
-                print(f"Running benchmark for task: {task_name}")
-                task_result = self.run_benchmark(task_name)
-                results.append(task_result)
-                completed_tasks.append(task_name)
-
-                if task_result.get("skipped", False):
-                    skipped_count += 1
-                    print(f"  → Skipped: {task_result.get('message', 'Unknown reason')}")
-                elif task_result["success"]:
-                    success_count += 1
-                else:
-                    failure_count += 1
-
-                # Check if this was a rate limit error
-                if task_result.get("solver_result") and hasattr(
-                    task_result["solver_result"], "is_rate_limited"
-                ):
-                    rate_limited = task_result["solver_result"].is_rate_limited
-                elif "is_rate_limited" in task_result:
-                    rate_limited = task_result["is_rate_limited"]
-
-                # Save progress after each task
-                self._save_progress(completed_tasks, results)
-
-                # Save final results after each task (for early termination visibility)
-                self._save_final_results(success_count, failure_count, error_count, skipped_count, results, rate_limited)
-
-                # Exit early if rate limited
-                if rate_limited:
-                    print("\n" + "=" * 80)
-                    print("⚠️  API RATE LIMIT/QUOTA EXCEEDED - STOPPING EXECUTION")
-                    print("=" * 80)
-                    print(f"Completed {len(completed_tasks)} tasks before rate limit.")
-                    print(f"Progress saved to: {self.progress_file}")
-                    print(f"Use --resume flag to continue from where you left off.")
-                    print("=" * 80 + "\n")
-                    break
-
-            except Exception as e:
-                error_count += 1
-                error_result = ValidationResult(False, f"Error running task: {e}")
-                task_result = {
-                    "task_name": task_name,
-                    "success": error_result.success,
-                    "message": error_result.message,
-                    "timestamp": error_result.timestamp,
-                    "agent": self.agent,
-                    "model": self.model,
-                    "use_mcp": self.use_mcp,
-                    "use_runtime_video": self.use_runtime_video,
-                    "skip_display": self.skip_display,
-                    "debug": self.debug,
-                }
-                results.append(task_result)
-                completed_tasks.append(task_name)
-                print(f"Error running task {task_name}: {e}")
-
-                # Save progress even on error
-                self._save_progress(completed_tasks, results)
-
-                # Save final results after error
-                self._save_final_results(success_count, failure_count, error_count, skipped_count, results, rate_limited)
+        success_count = tally["success"]
+        failure_count = tally["failure"]
+        error_count = tally["error"]
+        skipped_count = tally["skipped"]
+        rate_limited = tally["rate_limited"]
 
         total_tasks = len(results)
         final_results = self._create_final_results_summary(
@@ -1478,6 +1577,13 @@ def main():
         help="Optional name used to isolate outputs under results/<run_name>/ and tasks/test_result/<run_name>/",
         type=str,
     )
+    parser.add_argument(
+        "--workers",
+        help="Number of tasks to run concurrently for `run` over a task list "
+        "(each in its own process). Default 8; forced to 1 when --enable-mcp is set.",
+        type=int,
+        default=8,
+    )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # List command
@@ -1522,6 +1628,7 @@ def main():
         skip_display=args.skip_display,
         use_runtime_video=args.use_runtime_video,
         run_name=args.run_name,
+        workers=args.workers,
     )
 
     if args.command == "list":

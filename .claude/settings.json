@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard_sensitive.py\"",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard_sensitive.py\"",
             "timeout": 15
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/commit_reminder.py\"",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/commit_reminder.py\"",
             "timeout": 30
           }
         ]

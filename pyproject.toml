@@ -16,6 +16,7 @@ dependencies = [
     "openhands-tools; python_version >= '3.12'",
     "mss>=10.2.0",
     "pyyaml",
+    "python-dotenv",
 ]
 
 [project.scripts]

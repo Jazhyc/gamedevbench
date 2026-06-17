@@ -14,6 +14,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from gamedevbench.src.utils.env import load_project_env
+
+# Populate os.environ from .env before any module reads config/credentials.
+load_project_env()
+
 from gamedevbench.src.utils.constants import (
     TASKS_DIR,
     GT_TASKS_DIR,

@@ -1074,6 +1074,7 @@ dependencies = [
     { name = "openhands-tools", marker = "python_full_version >= '3.12'" },
     { name = "pillow" },
     { name = "pyautogui" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
 
@@ -1094,6 +1095,7 @@ requires-dist = [
     { name = "pyautogui" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-mock", marker = "extra == 'dev'", specifier = ">=3.0.0" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
 provides-extras = ["dev"]

@@ -10,6 +10,7 @@ from typing import Dict, Optional
 # Sources used when updating this table on 2026-04-19:
 # - OpenAI pricing: https://developers.openai.com/api/docs/pricing
 # - Google Gemini pricing: https://ai.google.dev/gemini-api/docs/pricing
+# - DeepSeek pricing (added 2026-06-18): https://api-docs.deepseek.com/quick_start/pricing
 MODEL_PRICING = [
     # Anthropic Claude
     ("claude-sonnet-4-20250514", {"input": 3.00, "cached_input": 3.00, "output": 15.00}),
@@ -42,6 +43,14 @@ MODEL_PRICING = [
     ("gemini-2.5-pro", {"input": 1.25, "cached_input": 0.125, "output": 10.00}),
     ("gemini-2.5-flash", {"input": 0.30, "cached_input": 0.03, "output": 2.50}),
     ("gemini-2.5-flash-lite", {"input": 0.10, "cached_input": 0.01, "output": 0.40}),
+    # DeepSeek (native API). More specific ids first so substring matching does
+    # not let a generic "deepseek" key shadow -pro/-flash. cached_input is the
+    # cache-hit input rate. deepseek-chat/-reasoner are deprecated aliases of
+    # deepseek-v4-flash (2026/07/24) and share its pricing.
+    ("deepseek-v4-pro", {"input": 0.435, "cached_input": 0.003625, "output": 0.87}),
+    ("deepseek-v4-flash", {"input": 0.14, "cached_input": 0.0028, "output": 0.28}),
+    ("deepseek-reasoner", {"input": 0.14, "cached_input": 0.0028, "output": 0.28}),
+    ("deepseek-chat", {"input": 0.14, "cached_input": 0.0028, "output": 0.28}),
     # Default fallback
     ("default", {"input": 3.00, "cached_input": 3.00, "output": 15.00}),
 ]

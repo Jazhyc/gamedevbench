@@ -32,6 +32,12 @@ tooling. Concretely:
     the stdio server exits on EOF) before dispatching workers so the npx
     download happens once, not per-worker, and isn't charged to a task timeout.
     Manual warm-up: `npx -y @coding-solo/godot-mcp < /dev/null`.
+    ⚠️ Its `launch_editor` tool opens a real Godot **editor GUI window** (agents
+    do call it); the windows pop onto the host display, can collide with a
+    project you have open, and leak as orphaned processes. They're sandboxed
+    (`cwd` under `/tmp/gamedevbench_sandbox_*`, not the repo) and safe to
+    `pkill -f 'godot --editor'`. Run godot-mcp under `xvfb-run -a …` on Linux so
+    those windows go to a throwaway virtual display.
 - **Only the OpenHands solver honors a non-default `--mcp-server` so far** (it's
   DeepSeek's path); the other solvers still hardcode the `screenshot` baseline,
   so pairing `--mcp-server godot` with any other agent fails fast. Example:

@@ -122,15 +122,17 @@ MCP screenshot functionality (`--enable-mcp`) is **cross-platform** (Windows, ma
   npx -y @coding-solo/godot-mcp < /dev/null   # downloads, starts, exits on EOF
   ```
 
-Example (DeepSeek + godot-mcp, parallel):
+- ⚠️ **Run under a virtual display (Linux).** Unlike the headless screenshot baseline, godot-mcp exposes a `launch_editor` tool that opens a **real Godot editor GUI window**. Agents sometimes call it; those windows pop onto your desktop, can conflict with a project you have open ("reload scene from disk?"), and may leak as orphaned processes. Wrap the whole run in `xvfb-run` so every editor/window lands on a throwaway virtual display instead of your session:
 
-```bash
-uv run python gamedevbench/src/benchmark_runner.py \
-  --agent openhands --model deepseek-v4-pro \
-  --enable-mcp --mcp-server godot --workers 8 \
-  --run-name deepseek-godotmcp \
-  run --task-list tasks.yaml
-```
+  ```bash
+  xvfb-run -a uv run python gamedevbench/src/benchmark_runner.py \
+    --agent openhands --model deepseek-v4-pro \
+    --enable-mcp --mcp-server godot --workers 8 \
+    --run-name deepseek-godotmcp \
+    run --task-list tasks.yaml
+  ```
+
+  Without `xvfb-run`, if you see stray Godot editor windows after a run, they're sandboxed (working dir under `/tmp/gamedevbench_sandbox_*`, not your repo) and safe to `pkill -f 'godot --editor'`.
 
 ## Results
 

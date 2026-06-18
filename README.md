@@ -115,12 +115,23 @@ The official ICML 2026 camera-ready results are included in [`results/`](results
 | 5 | gpt-5.4-mini | OpenHands | Baseline | 38.4 |
 | 6 | claude-sonnet-4-5 | Claude Code | Screenshot + Video | 34.8 |
 | 7 | gemini-3-flash-preview | OpenHands | Screenshot + Video | 31.8 |
-| 8 | kimi-k2.5 | OpenHands | Screenshot + Video | 20.7 |
-| 9 | claude-haiku-4-5 | Claude Code | Video | 18.6 |
-| 10 | claude-haiku-4-5 | OpenHands | Screenshot + Video | 17.7 |
-| 11 | qwen3.5-397b | OpenHands | Baseline | 5.4 |
+| 8 | deepseek-v4-pro | OpenHands | Baseline | 29.1 |
+| 9 | kimi-k2.5 | OpenHands | Screenshot + Video | 20.7 |
+| 10 | claude-haiku-4-5 | Claude Code | Video | 18.6 |
+| 11 | claude-haiku-4-5 | OpenHands | Screenshot + Video | 17.7 |
+| 12 | qwen3.5-397b | OpenHands | Baseline | 5.4 |
 
 *Best-performing multimodal feedback configuration per model + harness pair. Screenshot = editor screenshot MCP server; Video = runtime gameplay video instructions. See the [project page](https://waynechi.com/gamedevbench) for the full leaderboard.*
+
+### Godot-Specific Tooling
+
+A separate track measuring **Godot-targeted MCP servers against generic, non-Godot tooling**, holding the model and harness fixed and varying only the tooling. Each configuration is isolated with `--run-name` so its `results/` are directly comparable against the generic/no-MCP baseline.
+
+| Model | Harness | Tooling | pass@1 (%) |
+|-------|---------|---------|-----------:|
+| deepseek-v4-pro | OpenHands | Generic (no Godot MCP) | 29.1 |
+
+*Baseline for the Godot-tooling comparison (DeepSeek is text-only, so the screenshot MCP path is not used). pass@1 over all 333 tasks; solver timeouts and errors count as failures. Godot-targeted MCP rows will be added here as those servers are integrated.*
 
 ## Citation
 

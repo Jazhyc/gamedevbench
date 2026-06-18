@@ -108,8 +108,14 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
   `mini_swe`). Solvers must honor `timeout_seconds` (= `TIMEOUT`, 600s): the
   OpenHands agent loop is bounded only by iteration count, so `openhands_solver`
   installs a watchdog that calls `conversation.pause()` at the deadline (a soft
-  cap — a step already inside one LLM/tool call finishes first). Timed-out runs
-  return `success=False`; their partial sandbox work is still validated.
+  cap — a step already inside one LLM/tool call finishes first). A step wedged
+  inside a child subprocess (e.g. a hung MCP/godot tool call) never reaches a
+  loop boundary, so a second **hard cap** `HARD_CAP_GRACE` seconds later (30s,
+  in `constants.py`) kills the worker's descendant process tree
+  (`_terminate_process_tree`, via `psutil`); closing those pipes unwedges
+  `run()` so one hung subprocess can't strand the worker — and the whole
+  `ProcessPoolExecutor` — indefinitely. Timed-out runs return `success=False`;
+  their partial sandbox work is still validated.
 - `mcp_registry.py` — registry of selectable MCP servers (`MCPServerSpec` +
   `get_mcp_server`/`available_mcp_servers`). `--mcp-server` picks one; solvers
   read `self.mcp_spec` to build their config and prompt guidance. Specs carry

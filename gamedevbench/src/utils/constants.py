@@ -19,3 +19,11 @@ TEST_SCENE_NAME = "res://scenes/test.tscn"
 
 # Execution settings
 TIMEOUT = 600
+
+# Grace period (seconds) after the soft timeout before the hard cap forcibly
+# terminates the solver's child process tree. The OpenHands soft cap is a
+# cooperative conversation.pause() that only takes effect between agent steps;
+# a step wedged inside a child subprocess (e.g. a hung MCP/godot process holding
+# a stdio read) never reaches that boundary, so the hard cap kills those
+# descendants to unwedge it. See openhands_solver.
+HARD_CAP_GRACE = 30

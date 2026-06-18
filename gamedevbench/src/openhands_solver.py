@@ -22,12 +22,47 @@ from openhands.sdk.security.confirmation_policy import NeverConfirm
 from openhands.tools.preset.default import get_default_tools, get_default_condenser
 from gamedevbench.src.base_solver import BaseSolver
 from gamedevbench.src.mcp_registry import DEFAULT_MCP_SERVER
+from gamedevbench.src.utils.constants import HARD_CAP_GRACE
 from gamedevbench.src.utils.data_types import SolverResult, TokenUsage
 from gamedevbench.src.utils.prompts import create_system_prompt
 from gamedevbench.src.utils.llm_keys import resolve_api_base, resolve_provider_api_key
 
 
 logger = get_logger(__name__)
+
+
+def _terminate_process_tree(pid: int, term_grace: float = 3.0) -> int:
+    """Kill every descendant process of ``pid`` (not ``pid`` itself).
+
+    The hard cap calls this when the cooperative soft timeout can't interrupt a
+    solver step blocked inside a child subprocess — e.g. a hung MCP/godot
+    process holding a stdio read. Killing the descendants closes those pipes so
+    the blocked call unwinds and ``conversation.run()`` can return, and it reaps
+    the orphaned ``godot``/``node`` processes that would otherwise leak. Only
+    descendants of this worker are touched, so sibling workers are unaffected.
+    Best-effort: returns the number of processes signalled (0 if psutil is
+    unavailable or there are no children).
+    """
+    try:
+        import psutil
+    except Exception:
+        return 0
+    try:
+        children = psutil.Process(pid).children(recursive=True)
+    except Exception:
+        return 0
+    for child in children:
+        try:
+            child.terminate()
+        except Exception:
+            pass
+    _gone, alive = psutil.wait_procs(children, timeout=term_grace)
+    for child in alive:
+        try:
+            child.kill()
+        except Exception:
+            pass
+    return len(children)
 
 
 class OpenHandsSolver(BaseSolver):
@@ -241,7 +276,16 @@ class OpenHandsSolver(BaseSolver):
             # call already blocked inside a single LLM/tool step finishes first —
             # but it bounds runaway trajectories. Partial work left in the
             # sandbox is still validated downstream.
+            #
+            # A step wedged inside a child subprocess (e.g. a hung MCP/godot tool
+            # call holding a stdio read) never reaches the next loop boundary, so
+            # pause() can't land and run() never returns. A second, hard cap
+            # HARD_CAP_GRACE seconds later kills this worker's descendant
+            # processes; that closes the stdio pipes so the blocked call unwinds
+            # and run() returns, instead of stranding the worker (and, with it,
+            # the whole process pool) indefinitely.
             timed_out = threading.Event()
+            hard_capped = threading.Event()
 
             def _stop_on_timeout():
                 timed_out.set()
@@ -250,13 +294,23 @@ class OpenHandsSolver(BaseSolver):
                 except Exception:
                     pass
 
+            def _hard_stop():
+                hard_capped.set()
+                _terminate_process_tree(os.getpid())
+
             watchdog = threading.Timer(self.timeout_seconds, _stop_on_timeout)
             watchdog.daemon = True
             watchdog.start()
+            hard_watchdog = threading.Timer(
+                self.timeout_seconds + HARD_CAP_GRACE, _hard_stop
+            )
+            hard_watchdog.daemon = True
+            hard_watchdog.start()
             try:
                 conversation.run()
             finally:
                 watchdog.cancel()
+                hard_watchdog.cancel()
 
             duration = time.time() - start_time
             response_text = "\n".join(output_lines)
@@ -294,10 +348,17 @@ class OpenHandsSolver(BaseSolver):
 
             if timed_out.is_set():
                 success = False
-                message = (
-                    f"Solver timed out after {self.timeout_seconds}s "
-                    "(agent paused; partial work validated)"
-                )
+                if hard_capped.is_set():
+                    message = (
+                        f"Solver timed out after {self.timeout_seconds}s; hard "
+                        f"cap killed runaway subprocesses {HARD_CAP_GRACE}s "
+                        "later (partial work validated)"
+                    )
+                else:
+                    message = (
+                        f"Solver timed out after {self.timeout_seconds}s "
+                        "(agent paused; partial work validated)"
+                    )
             else:
                 success = True
                 message = "Task completed"

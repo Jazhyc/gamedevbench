@@ -63,3 +63,52 @@ def test_godot_env_omits_path_when_unresolvable(monkeypatch):
 
 def test_screenshot_server_has_no_extra_env():
     assert mcp_servers.get_mcp_server("screenshot").env() == {}
+
+
+def test_godot_server_marked_for_prefetch():
+    assert mcp_servers.get_mcp_server("godot").prefetch is True
+    # The screenshot baseline ships locally; nothing to fetch.
+    assert mcp_servers.get_mcp_server("screenshot").prefetch is False
+
+
+def test_warm_up_launches_command_for_prefetch_server(monkeypatch):
+    calls = {}
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        calls["stdin"] = kwargs.get("stdin")
+        calls["timeout"] = kwargs.get("timeout")
+
+    monkeypatch.setenv("GODOT_EXEC_PATH", "/opt/godot/godot")
+    monkeypatch.setattr(mcp_servers.subprocess, "run", fake_run)
+
+    spec = mcp_servers.get_mcp_server("godot")
+    assert spec.warm_up() is True
+    assert calls["cmd"] == ["npx", "-y", "@coding-solo/godot-mcp"]
+    # stdin must be closed so the stdio server exits on EOF instead of hanging.
+    assert calls["stdin"] == mcp_servers.subprocess.DEVNULL
+
+
+def test_warm_up_is_noop_for_non_prefetch_server(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("warm_up should not launch a non-prefetch server")
+
+    monkeypatch.setattr(mcp_servers.subprocess, "run", boom)
+    assert mcp_servers.get_mcp_server("screenshot").warm_up() is False
+
+
+def test_warm_up_survives_timeout(monkeypatch):
+    def timeout_run(*a, **k):
+        raise mcp_servers.subprocess.TimeoutExpired(cmd="npx", timeout=1)
+
+    monkeypatch.setattr(mcp_servers.subprocess, "run", timeout_run)
+    # A timeout still means the cache was (almost certainly) warmed.
+    assert mcp_servers.get_mcp_server("godot").warm_up() is True
+
+
+def test_warm_up_swallows_launch_failure(monkeypatch):
+    def fail_run(*a, **k):
+        raise FileNotFoundError("npx not installed")
+
+    monkeypatch.setattr(mcp_servers.subprocess, "run", fail_run)
+    assert mcp_servers.get_mcp_server("godot").warm_up() is False

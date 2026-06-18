@@ -1347,6 +1347,19 @@ script = ExtResource("test_script")
         }
         tally["failure"] = len(results) - tally["success"]
 
+        # Prime any download-on-first-launch MCP server once, before dispatching
+        # workers, so parallel tasks reuse the cache instead of each fetching it
+        # (and the download isn't charged against a task's solve timeout).
+        if self.use_mcp and self.mcp_spec.prefetch:
+            print(f"Pre-fetching MCP server '{self.mcp_server}' (one-time)...")
+            warmed = self.mcp_spec.warm_up()
+            print(
+                f"  MCP server '{self.mcp_server}' ready."
+                if warmed
+                else f"  ⚠️  Could not pre-fetch '{self.mcp_server}'; "
+                "workers will fetch it on first use."
+            )
+
         if self.workers > 1 and len(tasks) > 1:
             print(f"Running {len(tasks)} tasks with {self.workers} parallel workers...")
             self._run_tasks_parallel(tasks, results, completed_tasks, tally)

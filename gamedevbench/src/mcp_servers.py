@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional
 
@@ -43,6 +44,10 @@ class MCPServerSpec:
             monitor) that parallel runs would collide over, forcing the runner
             back to a single worker. False for headless servers (text/stdout
             only), which are safe to run in parallel.
+        prefetch: True if the server should be launched once up front before
+            tasks run (see ``warm_up``). Set for servers whose first launch
+            downloads something (e.g. ``npx`` fetching the package) so parallel
+            workers reuse the cache instead of racing to download it.
     """
 
     name: str
@@ -53,10 +58,42 @@ class MCPServerSpec:
     allowed_tools: tuple[str, ...] = ()
     env_factory: Optional[Callable[[], Dict[str, str]]] = field(default=None)
     exclusive_display: bool = False
+    prefetch: bool = False
 
     def env(self) -> Dict[str, str]:
         """Resolve extra environment variables for the server process."""
         return dict(self.env_factory()) if self.env_factory else {}
+
+    def warm_up(self, timeout: float = 300.0) -> bool:
+        """Launch the server once with stdin closed to prime any cache.
+
+        The stdio server reads stdin and exits on EOF, so this returns once the
+        package is fetched and the server has started+stopped (a couple of
+        seconds on a warm cache, longer on a cold one while it downloads). This
+        keeps parallel workers from each downloading the package, and keeps that
+        download time off any single task's solve timeout. No-op (returns False)
+        for servers that don't set ``prefetch``.
+        """
+        if not self.prefetch:
+            return False
+        cmd = [self.command, *self.args]
+        env = {**os.environ, **self.env()}
+        try:
+            subprocess.run(
+                cmd,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            # The download almost certainly finished even if the server didn't
+            # exit on EOF in time; the cache is warm either way.
+            return True
+        except Exception:
+            return False
+        return True
 
 
 def _resolve_godot_path() -> str:
@@ -135,6 +172,10 @@ GODOT = MCPServerSpec(
     args=("-y", "@coding-solo/godot-mcp"),
     prompt_guidance=_GODOT_MCP_GUIDANCE,
     env_factory=_godot_mcp_env,
+    # Headless (stdout-only) tools, so parallel runs don't collide on a display.
+    exclusive_display=False,
+    # First `npx` launch downloads the package; prime it once so workers don't race.
+    prefetch=True,
 )
 
 

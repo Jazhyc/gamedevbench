@@ -48,6 +48,7 @@ GameDevBench contains **333 game development tasks** to evaluate LLM agents' abi
 
 - **Godot 4.x** — Download from [godotengine.org](https://godotengine.org/download). Ensure `godot` is in your PATH or set `GODOT_EXEC_PATH`.
 - **Python 3.10+** (Python 3.12+ for OpenHands)
+- **Node.js ≥18** — only needed for the Godot-targeted `--mcp-server godot` server (run via `npx`); see [Godot-Specific Tooling](#godot-specific-tooling).
 
 ### Install an Agent
 
@@ -93,7 +94,8 @@ uv run python gamedevbench/src/benchmark_runner.py \
 |------|-------------|
 | `--agent AGENT` | Agent to use *(required)* |
 | `--model MODEL` | Model name (e.g., `claude-sonnet-4-5-20250929`) |
-| `--enable-mcp` | Enable MCP server for screenshot capabilities *(cross-platform)* |
+| `--enable-mcp` | Enable an MCP server for the agent |
+| `--mcp-server NAME` | Which MCP server to wire in (`screenshot` default, or `godot`); see [Godot-Specific Tooling](#godot-specific-tooling) |
 | `--use-runtime-video` | Append Godot runtime instructions to prompts |
 | `--skip-display` | Skip tasks that require a display |
 | `run --task-list FILE` | Task list YAML (e.g., `tasks.yaml`) |
@@ -126,6 +128,32 @@ The official ICML 2026 camera-ready results are included in [`results/`](results
 ### Godot-Specific Tooling
 
 A separate track measuring **Godot-targeted MCP servers against generic, non-Godot tooling**, holding the model and harness fixed and varying only the tooling. Each configuration is isolated with `--run-name` so its `results/` are directly comparable against the generic/no-MCP baseline.
+
+`--enable-mcp` turns MCP on and `--mcp-server NAME` picks which server:
+
+| `--mcp-server` | Server | Notes |
+|----------------|--------|-------|
+| `screenshot` *(default)* | bundled editor-screenshot server (`mss`, cross-platform) | Captures a whole monitor, so runs are forced to `--workers 1`. Set `GODOT_SCREENSHOT_DISPLAY` to the 1-indexed monitor (`1` = primary; out-of-range falls back to primary). |
+| `godot` | [`@coding-solo/godot-mcp`](https://github.com/Coding-Solo/godot-mcp) | Godot-targeted tools (run/stop project, debug output, scene/node editing, project info, UID/mesh-library management). Headless — safe to run in parallel (`--workers N`). Currently honored only by `--agent openhands`. |
+
+**`godot` server prerequisites & first run:**
+
+- Needs **Node.js ≥18**; the server is launched via `npx -y @coding-solo/godot-mcp`. `GODOT_PATH` is taken from `GODOT_EXEC_PATH` / `GODOT_PATH` / `godot` on PATH.
+- The **first launch downloads the package**. The runner pre-fetches it once before dispatching workers, so parallel tasks don't each download it (and the download isn't charged against a task's solve timeout). For a one-off/single-task run, or to warm the cache manually beforehand, run:
+
+  ```bash
+  npx -y @coding-solo/godot-mcp < /dev/null   # downloads, starts, exits on EOF
+  ```
+
+Example (DeepSeek + godot-mcp, parallel):
+
+```bash
+uv run python gamedevbench/src/benchmark_runner.py \
+  --agent openhands --model deepseek-v4-pro \
+  --enable-mcp --mcp-server godot --workers 8 \
+  --run-name deepseek-godotmcp \
+  run --task-list tasks.yaml
+```
 
 | Model | Harness | Tooling | pass@1 (%) |
 |-------|---------|---------|-----------:|

@@ -27,7 +27,11 @@ tooling. Concretely:
     `npx -y @coding-solo/godot-mcp` (needs Node ≥18). Exposes ~13 tools
     (run/stop project, get debug output, scene/node editing, version/project
     info, mesh-library export, UID management). `GODOT_PATH` is set from
-    `GODOT_EXEC_PATH`/`GODOT_PATH`/`which godot`.
+    `GODOT_EXEC_PATH`/`GODOT_PATH`/`which godot`. Marked `prefetch=True`: the
+    runner calls `MCPServerSpec.warm_up()` once (launches it with stdin closed;
+    the stdio server exits on EOF) before dispatching workers so the npx
+    download happens once, not per-worker, and isn't charged to a task timeout.
+    Manual warm-up: `npx -y @coding-solo/godot-mcp < /dev/null`.
 - **Only the OpenHands solver honors a non-default `--mcp-server` so far** (it's
   DeepSeek's path); the other solvers still hardcode the `screenshot` baseline,
   so pairing `--mcp-server godot` with any other agent fails fast. Example:
@@ -91,7 +95,9 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
   return `success=False`; their partial sandbox work is still validated.
 - `mcp_servers.py` — registry of selectable MCP servers (`MCPServerSpec` +
   `get_mcp_server`/`available_mcp_servers`). `--mcp-server` picks one; solvers
-  read `self.mcp_spec` to build their config and prompt guidance.
+  read `self.mcp_spec` to build their config and prompt guidance. Specs carry
+  `exclusive_display` (forces `--workers 1`) and `prefetch` (one-time
+  `warm_up()` before dispatch).
 - `mcp_server.py` — the bundled Godot screenshot MCP server (registry entry
   `screenshot`). Launches the editor fullscreen on a screen and captures that
   monitor; cross-platform via `mss` (`GODOT_SCREENSHOT_DISPLAY`, 1-indexed,

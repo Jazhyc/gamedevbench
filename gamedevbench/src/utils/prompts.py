@@ -32,8 +32,9 @@ def load_task_config() -> Optional[dict]:
 VERIFICATION_NUDGE_GUIDANCE = """
     - Before you finish, verify your work actually behaves as the task describes. Do not stop at "it loads without errors".
     - Re-read the instruction and turn it into the specific, observable behaviours it requires. Write a short throwaway GDScript test that loads the relevant scene/script and asserts each of those behaviours.
-    - Run it headlessly, e.g. `timeout 10 godot --headless --script verify.gd`, and confirm every assertion passes.
-    - Keep fixing your implementation (not the test) until it genuinely satisfies the intended behaviour.
+    - Write the test to a real `.gd` file and run it as `timeout 10 godot --headless --script verify.gd`. Do NOT pipe the script via stdin / `--script -`.
+    - Import the project once first (e.g. `timeout 60 godot --headless --import`); otherwise assets and custom-class scenes won't load and your test will fail to LOAD the scene rather than actually test it.
+    - Confirm every assertion passes, and keep fixing your implementation (not the test) until it genuinely satisfies the intended behaviour.
     """
 
 

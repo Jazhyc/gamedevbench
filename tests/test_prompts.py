@@ -52,6 +52,10 @@ def test_verification_nudge_appended_only_when_requested():
     # but ships no script template / introspection idioms.
     assert "verify" in with_nudge.lower()
     assert "godot --headless --script" in with_nudge
+    # Minimal mechanics so the self-test actually runs (cold-import + stdin gaps):
+    # import the project first, and run a file rather than piping via stdin.
+    assert "--import" in with_nudge
+    assert "--script -" in with_nudge  # the "do NOT pipe via stdin" warning
     assert "verify" not in without.lower()
 
 

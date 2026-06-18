@@ -155,6 +155,76 @@ def enable_plugin_text(project_godot_text: str) -> str:
     return text + "\n" if trailing_nl else text
 
 
+def strip_plugin_text(project_godot_text: str) -> str:
+    """Return ``project.godot`` with all godot-ai tooling footprint removed.
+
+    Reverses :func:`enable_plugin_text` (drops our entry from the
+    ``[editor_plugins]`` enabled array, removing an emptied section we created)
+    and removes any ``[autoload]`` entry pointing into ``res://addons/godot_ai/``
+    — notably the ``_mcp_game_helper`` singleton the plugin injects, which would
+    otherwise run during the scored headless validation. Other plugins and
+    autoloads (including ones the agent legitimately added) are preserved.
+    """
+    entry = f'"{_PLUGIN_RES_PATH}"'
+    trailing_nl = project_godot_text.endswith("\n")
+    lines = project_godot_text.splitlines()
+
+    def _is_header(line: str) -> bool:
+        s = line.strip()
+        return s.startswith("[") and s.endswith("]")
+
+    out: list[str] = []
+    section: Optional[str] = None
+    for line in lines:
+        s = line.strip()
+        if _is_header(line):
+            section = s
+        if section == "[autoload]" and "res://addons/godot_ai/" in s:
+            continue
+        if section == "[editor_plugins]" and s.startswith("enabled=PackedStringArray("):
+            inner = s[len("enabled=PackedStringArray("):].rstrip(")")
+            members = [
+                m.strip() for m in inner.split(",")
+                if m.strip() and m.strip() != entry
+            ]
+            if members:
+                out.append(f"enabled=PackedStringArray({', '.join(members)})")
+            continue  # drop the line entirely when no members remain
+        out.append(line)
+
+    # Drop an [editor_plugins] section left with no key lines (one we created).
+    cleaned: list[str] = []
+    i = 0
+    while i < len(out):
+        if out[i].strip() == "[editor_plugins]":
+            j = i + 1
+            has_keys = False
+            while j < len(out) and not _is_header(out[j]):
+                if out[j].strip():
+                    has_keys = True
+                j += 1
+            if not has_keys:
+                i = j  # skip header + its blank lines
+                continue
+        cleaned.append(out[i])
+        i += 1
+
+    text = "\n".join(cleaned).rstrip("\n")
+    return text + "\n" if trailing_nl else text
+
+
+def cleanup_project_footprint(project_dir: Path) -> None:
+    """Remove the godot-ai addon and its project.godot entries from a project.
+
+    Idempotent and best-effort: leaves the project as if the plugin had never
+    been installed, so the agent's work is validated in a clean environment.
+    """
+    shutil.rmtree(project_dir / "addons" / "godot_ai", ignore_errors=True)
+    project_godot = project_dir / "project.godot"
+    if project_godot.exists():
+        project_godot.write_text(strip_plugin_text(project_godot.read_text()))
+
+
 def install_addon(project_dir: Path, addon_src: Path) -> None:
     """Copy the addon into a project and enable its plugin in project.godot."""
     dest = project_dir / "addons" / "godot_ai"
@@ -351,3 +421,9 @@ class GodotAiEditorSession:
         if self._proc is not None and self._proc.poll() is None:
             _terminate_tree(self._proc.pid)
         self._proc = None
+        # With the editor dead (no longer rewriting project.godot), strip the
+        # plugin footprint so the agent's work is validated in a clean project.
+        try:
+            cleanup_project_footprint(self.project_dir)
+        except Exception:
+            pass

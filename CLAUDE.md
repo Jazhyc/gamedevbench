@@ -56,7 +56,10 @@ tooling. Concretely:
     plugin in `project.godot`, launch the editor under `xvfb-run`, poll
     `editor_state` until `readiness==ready`, then tear the editor's whole process
     group down (reaps the server **and** the `Xvfb` that `xvfb-run` would
-    orphan). Exposes ~41 tools / ~120 ops (scene/node/script/signal editing,
+    orphan) and **strip the plugin footprint** from the sandbox — the addon dir,
+    the `[editor_plugins]` enable entry, and the `_mcp_game_helper` autoload the
+    plugin injects into `project.godot` — so the agent's work is scored in a
+    clean project (that autoload otherwise runs during headless validation). Exposes ~41 tools / ~120 ops (scene/node/script/signal editing,
     run+debug, screenshot, UI/material/animation/etc.) operating on the live
     editor. Notes: its server **phones home telemetry** by default — the spec env
     sets `GODOT_AI_DISABLE_TELEMETRY=1`/`DISABLE_TELEMETRY=1`; the plugin

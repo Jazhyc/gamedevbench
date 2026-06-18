@@ -57,6 +57,82 @@ def test_enable_plugin_fills_empty_section():
     assert out.count("[editor_plugins]") == 1
 
 
+# --- strip_plugin_text / cleanup --------------------------------------------
+
+def test_strip_removes_added_section_round_trip():
+    original = '[application]\nconfig/name="X"\n'
+    enabled = gae.enable_plugin_text(original)
+    assert "[editor_plugins]" in enabled
+    # Stripping a section we created restores the original byte-for-byte.
+    assert gae.strip_plugin_text(enabled) == original
+
+
+def test_strip_removes_game_helper_autoload_keeps_others():
+    text = (
+        "[autoload]\n\n"
+        'QuestManager="*res://addons/quest_manager/QuestManager.gd"\n'
+        '_mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"\n'
+    )
+    out = gae.strip_plugin_text(text)
+    assert "_mcp_game_helper" not in out
+    assert "res://addons/godot_ai/" not in out
+    # The project's real autoload is untouched.
+    assert 'QuestManager="*res://addons/quest_manager/QuestManager.gd"' in out
+
+
+def test_strip_preserves_other_editor_plugins():
+    text = (
+        "[editor_plugins]\n\n"
+        'enabled=PackedStringArray("res://addons/other/plugin.cfg", '
+        '"res://addons/godot_ai/plugin.cfg")\n'
+    )
+    out = gae.strip_plugin_text(text)
+    assert '"res://addons/other/plugin.cfg"' in out
+    assert "godot_ai" not in out
+    assert "[editor_plugins]" in out  # section kept — another plugin remains
+
+
+def test_strip_is_idempotent_on_clean_project():
+    clean = '[application]\nconfig/name="X"\n'
+    assert gae.strip_plugin_text(clean) == clean
+
+
+def test_cleanup_project_footprint_removes_addon_and_entries(tmp_path):
+    (tmp_path / "addons" / "godot_ai").mkdir(parents=True)
+    (tmp_path / "addons" / "godot_ai" / "plugin.cfg").write_text("[plugin]\n")
+    (tmp_path / "project.godot").write_text(
+        "[autoload]\n\n"
+        'QuestManager="*res://addons/quest_manager/QuestManager.gd"\n'
+        '_mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"\n\n'
+        "[editor_plugins]\n\n"
+        'enabled=PackedStringArray("res://addons/godot_ai/plugin.cfg")\n'
+    )
+
+    gae.cleanup_project_footprint(tmp_path)
+
+    assert not (tmp_path / "addons" / "godot_ai").exists()
+    text = (tmp_path / "project.godot").read_text()
+    assert "godot_ai" not in text
+    assert "_mcp_game_helper" not in text
+    assert "QuestManager" in text  # the project's own autoload survives
+
+
+def test_full_install_then_cleanup_restores_project(tmp_path):
+    addon_src = tmp_path / "src" / "godot_ai"
+    addon_src.mkdir(parents=True)
+    (addon_src / "plugin.cfg").write_text("[plugin]\n")
+    project = tmp_path / "proj"
+    project.mkdir()
+    original = '[application]\nconfig/name="P"\n'
+    (project / "project.godot").write_text(original)
+
+    gae.install_addon(project, addon_src)
+    gae.cleanup_project_footprint(project)
+
+    assert not (project / "addons" / "godot_ai").exists()
+    assert (project / "project.godot").read_text() == original
+
+
 # --- install_addon ----------------------------------------------------------
 
 def test_install_addon_copies_and_enables(tmp_path):

@@ -475,7 +475,11 @@ class GodotAiEditorSession:
     godot_path: str
     addon_src: Path
     extra_env: Dict[str, str] = field(default_factory=dict)
-    ready_timeout: float = 90.0
+    # Generous so a cold boot under CPU contention (many parallel workers) still
+    # reports ready instead of timing out. Too tight (was 90s) caused a retry
+    # storm under load: slow boots time out -> retry -> more editors -> more
+    # load -> more timeouts, a feedback loop that diverged until the box OOM'd.
+    ready_timeout: float = 180.0
     max_attempts: int = 2
     debug: bool = False
     http_url: str = field(default="", init=False)

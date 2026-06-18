@@ -7,6 +7,7 @@ Uses OpenHands SDK with MCP server for Godot screenshots.
 import json
 import time
 import os
+import threading
 from typing import Optional
 
 from pydantic import SecretStr
@@ -221,7 +222,31 @@ class OpenHandsSolver(BaseSolver):
 
             # Send message and run
             conversation.send_message(prompt)
-            conversation.run()
+
+            # Enforce a wall-clock cap. The agent loop is otherwise unbounded in
+            # time (max_iteration_per_run is an iteration count, not seconds), so
+            # a single hard task can run for tens of minutes. A watchdog pauses
+            # the conversation at the deadline; pause() takes effect at the next
+            # loop boundary, making run() return gracefully. It's a soft cap — a
+            # call already blocked inside a single LLM/tool step finishes first —
+            # but it bounds runaway trajectories. Partial work left in the
+            # sandbox is still validated downstream.
+            timed_out = threading.Event()
+
+            def _stop_on_timeout():
+                timed_out.set()
+                try:
+                    conversation.pause()
+                except Exception:
+                    pass
+
+            watchdog = threading.Timer(self.timeout_seconds, _stop_on_timeout)
+            watchdog.daemon = True
+            watchdog.start()
+            try:
+                conversation.run()
+            finally:
+                watchdog.cancel()
 
             duration = time.time() - start_time
             response_text = "\n".join(output_lines)
@@ -257,9 +282,19 @@ class OpenHandsSolver(BaseSolver):
                     print(f"Cost: ${cost_usd:.4f}")
                 print("=" * 60)
 
+            if timed_out.is_set():
+                success = False
+                message = (
+                    f"Solver timed out after {self.timeout_seconds}s "
+                    "(agent paused; partial work validated)"
+                )
+            else:
+                success = True
+                message = "Task completed"
+
             return SolverResult(
-                success=True,
-                message="Task completed",
+                success=success,
+                message=message,
                 duration_seconds=duration,
                 stdout=response_text,
                 stderr="",

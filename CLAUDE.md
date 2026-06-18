@@ -67,7 +67,11 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
   class. **Add a new agent here** (or via `register_solver`). OpenHands is
   registered only on Python 3.12+.
 - `*_solver.py` — one per agent (`claude_code`, `codex`, `gemini`, `openhands`,
-  `mini_swe`).
+  `mini_swe`). Solvers must honor `timeout_seconds` (= `TIMEOUT`, 600s): the
+  OpenHands agent loop is bounded only by iteration count, so `openhands_solver`
+  installs a watchdog that calls `conversation.pause()` at the deadline (a soft
+  cap — a step already inside one LLM/tool call finishes first). Timed-out runs
+  return `success=False`; their partial sandbox work is still validated.
 - `mcp_server.py` — the bundled Godot screenshot MCP server. Launches the editor
   fullscreen on a screen and captures that monitor; cross-platform via `mss`
   (`GODOT_SCREENSHOT_DISPLAY`, 1-indexed, falls back to primary).

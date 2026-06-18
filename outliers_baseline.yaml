@@ -1,0 +1,12 @@
+# 8 baseline (deepseek-v4-pro / OpenHands / no MCP) tasks that ran >600s before
+# the wall-clock watchdog existed. Re-run on the current harness to comply with
+# the 10-minute soft cap. See README Godot-tooling notes.
+tasks:
+- task_0097
+- task_0173
+- task_0180
+- task_0205
+- task_0230
+- task_0233
+- task_0238
+- task_0242

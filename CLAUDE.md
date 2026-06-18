@@ -43,6 +43,29 @@ tooling. Concretely:
     guidance steers agents to those. Manual warm-up:
     `npx -y @tugcantopaloglu/godot-mcp < /dev/null`.
     ⚠️ Like `godot`, GUI-opening tools should run under `xvfb-run -a …` on Linux.
+  - `godot-ai` — [`hi-godot/godot-ai`](https://github.com/hi-godot/godot-ai),
+    structurally different from the others: it's a Godot **editor plugin** (not a
+    standalone stdio server) that spawns a Python FastMCP server the agent
+    reaches over **HTTP**, bridged to a *live editor* over a WebSocket. So the
+    spec uses `transport="http"` + `http_url` (default `http://127.0.0.1:8000/mcp`)
+    and `needs_godot_editor=True`; `command`/`args` (`uvx godot-ai==<ver>`) only
+    prime the package cache in `warm_up`. For each task the OpenHands solver runs
+    a per-task editor lifecycle via `godot_ai_editor.py`: cache the pinned addon
+    (shallow clone of tag `v<ver>`, reused across runs; override the cache dir
+    with `GAMEDEVBENCH_GODOT_AI_CACHE`), install it into the sandbox + enable the
+    plugin in `project.godot`, launch the editor under `xvfb-run`, poll
+    `editor_state` until `readiness==ready`, then tear the editor's whole process
+    group down (reaps the server **and** the `Xvfb` that `xvfb-run` would
+    orphan). Exposes ~41 tools / ~120 ops (scene/node/script/signal editing,
+    run+debug, screenshot, UI/material/animation/etc.) operating on the live
+    editor. Notes: its server **phones home telemetry** by default — the spec env
+    sets `GODOT_AI_DISABLE_TELEMETRY=1`/`DISABLE_TELEMETRY=1`; the plugin
+    self-disables under a true `--headless` editor unless `GODOT_AI_ALLOW_HEADLESS=1`
+    (so we use `xvfb`). ⚠️ **Forces `--workers 1`** (`requires_single_worker`):
+    its ports come only from global EditorSettings (no env override), so parallel
+    editors would collide on ports 8000/9500. Per-worker parallelism would need
+    per-worker EditorSettings pre-seeding (a follow-up). Manual warm-up:
+    `uvx --from godot-ai==<ver> godot-ai --version`.
   - The `godot` server's `launch_editor` tool opens a real Godot **editor GUI window** (agents
     do call it); the windows pop onto the host display, can collide with a
     project you have open, and leak as orphaned processes. They're sandboxed
@@ -119,8 +142,16 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
 - `mcp_registry.py` — registry of selectable MCP servers (`MCPServerSpec` +
   `get_mcp_server`/`available_mcp_servers`). `--mcp-server` picks one; solvers
   read `self.mcp_spec` to build their config and prompt guidance. Specs carry
-  `exclusive_display` (forces `--workers 1`) and `prefetch` (one-time
-  `warm_up()` before dispatch).
+  `prefetch` (one-time `warm_up()` before dispatch); `transport`
+  (`"stdio"`/`"http"`) + `http_url` for how the agent reaches the server; and
+  `needs_godot_editor` for plugin-backed servers. `requires_single_worker`
+  (true when `exclusive_display` **or** `needs_godot_editor`) forces
+  `--workers 1`.
+- `godot_ai_editor.py` — per-task editor lifecycle for the `godot-ai` server
+  (`ensure_addon`, `install_addon`/`enable_plugin_text`, `wait_until_ready`,
+  `GodotAiEditorSession`): caches+installs the addon, launches the editor under
+  `xvfb`, waits for `editor_state` readiness, and killpg's the editor's process
+  group on exit. Driven by the OpenHands solver.
 - `mcp_server.py` — the bundled Godot screenshot MCP server (registry entry
   `screenshot`). Launches the editor fullscreen on a screen and captures that
   monitor; cross-platform via `mss` (`GODOT_SCREENSHOT_DISPLAY`, 1-indexed,

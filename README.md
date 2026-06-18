@@ -161,10 +161,12 @@ A separate track measuring **Godot-targeted MCP servers against generic, non-God
 
 | Model | Harness | Tooling | pass@1 (%) | Avg tokens/task | Avg cost/task (USD) |
 |-------|---------|---------|-----------:|----------------:|--------------------:|
-| deepseek-v4-pro | OpenHands | Generic (no Godot MCP) | 29.1 | 1.29M | $0.055 |
-| deepseek-v4-pro | OpenHands | godot-mcp ([`@coding-solo/godot-mcp`](https://github.com/Coding-Solo/godot-mcp)) | _run in progress_ | _run in progress_ | _run in progress_ |
+| deepseek-v4-pro | OpenHands | Generic (no Godot MCP) | **29.1** | 1.19M | $0.052 |
+| deepseek-v4-pro | OpenHands | godot-mcp ([`@coding-solo/godot-mcp`](https://github.com/Coding-Solo/godot-mcp)) | 24.6 | 1.52M | $0.056 |
 
-*Baseline for the Godot-tooling comparison (DeepSeek is text-only, so the screenshot MCP path is not used). pass@1 over all 333 tasks; solver timeouts and errors count as failures. **Token and cost columns are reported because the model is held fixed (deepseek-v4-pro), so they isolate the tooling's effect on context size and spend** — a Godot MCP that matches the baseline's pass@1 but at higher tokens/cost is a worse trade, and vice-versa. Tokens are input+output summed per task (avg over 333); cost uses DeepSeek API pricing. Godot-targeted MCP rows are filled in as those runs complete.*
+*Comparison for the Godot-tooling track (DeepSeek is text-only, so the screenshot MCP path is not used). pass@1 over all 333 tasks; solver timeouts and errors count as failures. **Token and cost columns are reported because the model is held fixed (deepseek-v4-pro), so they isolate the tooling's effect on context size and spend.** Tokens are input+output summed per task (avg over 333); cost uses DeepSeek API pricing.*
+
+***Result: the Godot-targeted MCP underperformed the generic baseline on every axis*** — −4.5pp pass@1 (82 vs 97 solves), +28% tokens, +9% cost, and far more runaway trajectories (14 vs 2 tasks over the 600s cap). For a text-only model, wrapping Godot operations in MCP tools that mostly duplicate the shell inflated context (tool schemas + `get_debug_output` dumps fed back each turn) without a corresponding gain. *Baseline tokens/cost use the 8 pre-watchdog outlier tasks re-run under the current 600s cap for an apples-to-apples comparison; baseline pass@1 is unchanged (29.1%). The published [leaderboard](#results) row keeps the original camera-ready 29.1% / 1.29M-token figures.*
 
 ## Citation
 

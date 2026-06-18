@@ -264,6 +264,3 @@ tasks/task_*/
 tasks_gt/task_*/
 .archiver_shadow/
 .snapshots/
-
-# Transient benchmark run logs (monitoring only)
-run_logs/

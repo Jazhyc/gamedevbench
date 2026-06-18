@@ -32,7 +32,18 @@ tooling. Concretely:
     the stdio server exits on EOF) before dispatching workers so the npx
     download happens once, not per-worker, and isn't charged to a task timeout.
     Manual warm-up: `npx -y @coding-solo/godot-mcp < /dev/null`.
-    ⚠️ Its `launch_editor` tool opens a real Godot **editor GUI window** (agents
+  - `godot-tugcan` — second Godot-targeted server
+    [`@tugcantopaloglu/godot-mcp`](https://github.com/tugcantopaloglu/godot-mcp),
+    run via `npx -y @tugcantopaloglu/godot-mcp` (npm-published, bin `godot-mcp`;
+    needs Node ≥18). Exposes a much larger tool set (~149: scene/node editing,
+    run/debug output, screenshots, plus rendering/physics/audio/animation).
+    Same `GODOT_PATH` resolution and `prefetch`/headless config as `godot`. Its
+    runtime `game_*` tools require a `McpInteractionServer` autoload the
+    benchmark projects don't ship, so only the headless tools apply; prompt
+    guidance steers agents to those. Manual warm-up:
+    `npx -y @tugcantopaloglu/godot-mcp < /dev/null`.
+    ⚠️ Like `godot`, GUI-opening tools should run under `xvfb-run -a …` on Linux.
+  - The `godot` server's `launch_editor` tool opens a real Godot **editor GUI window** (agents
     do call it); the windows pop onto the host display, can collide with a
     project you have open, and leak as orphaned processes. They're sandboxed
     (`cwd` under `/tmp/gamedevbench_sandbox_*`, not the repo) and safe to

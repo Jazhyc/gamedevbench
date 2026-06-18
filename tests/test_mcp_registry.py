@@ -21,6 +21,7 @@ def test_baseline_is_default():
 def test_godot_server_registered():
     names = mcp_servers.available_mcp_servers()
     assert "godot" in names
+    assert "godot-tugcan" in names
     assert "screenshot" in names
     assert names == sorted(names)
 
@@ -33,6 +34,22 @@ def test_godot_server_launches_via_npx():
     assert "@coding-solo/godot-mcp" in spec.args
 
 
+def test_godot_tugcan_server_launches_via_npx():
+    spec = mcp_servers.get_mcp_server("godot-tugcan")
+    assert spec.command == "npx"
+    assert "-y" in spec.args
+    assert "@tugcantopaloglu/godot-mcp" in spec.args
+    # Headless tools, so parallel runs are safe; prime the npx download once.
+    assert spec.exclusive_display is False
+    assert spec.prefetch is True
+
+
+def test_godot_tugcan_env_uses_godot_exec_path(monkeypatch):
+    monkeypatch.setenv("GODOT_EXEC_PATH", "/opt/godot/godot")
+    env = mcp_servers.get_mcp_server("godot-tugcan").env()
+    assert env["GODOT_PATH"] == "/opt/godot/godot"
+
+
 def test_unknown_server_raises():
     with pytest.raises(ValueError, match="Unknown MCP server"):
         mcp_servers.get_mcp_server("does-not-exist")
@@ -41,10 +58,14 @@ def test_unknown_server_raises():
 def test_each_server_has_distinct_guidance():
     screenshot = mcp_servers.get_mcp_server("screenshot").prompt_guidance
     godot = mcp_servers.get_mcp_server("godot").prompt_guidance
+    tugcan = mcp_servers.get_mcp_server("godot-tugcan").prompt_guidance
     assert screenshot != godot
+    assert godot != tugcan
     assert "godot-screenshot" in screenshot
     # godot-mcp exposes run/debug tools the screenshot baseline doesn't.
     assert "run_project" in godot
+    # The tugcan server names its own package in its guidance.
+    assert "@tugcantopaloglu/godot-mcp" in tugcan
 
 
 def test_godot_env_uses_godot_exec_path(monkeypatch):

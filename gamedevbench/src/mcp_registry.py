@@ -9,9 +9,11 @@ JSON).
 
 The ``screenshot`` entry is the bundled baseline (see ``mcp_server.py``); the
 ``godot`` entry is the third-party Godot-targeted server
-``@coding-solo/godot-mcp`` (https://github.com/Coding-Solo/godot-mcp). Add new
-Godot-targeted servers here so each is selectable with ``--mcp-server`` and
-directly comparable against the baseline.
+``@coding-solo/godot-mcp`` (https://github.com/Coding-Solo/godot-mcp); the
+``godot-tugcan`` entry is a second Godot-targeted server
+``@tugcantopaloglu/godot-mcp`` (https://github.com/tugcantopaloglu/godot-mcp).
+Add new Godot-targeted servers here so each is selectable with ``--mcp-server``
+and directly comparable against the baseline.
 """
 
 from __future__ import annotations
@@ -153,6 +155,25 @@ When to use the MCP tools:
 - To verify: use `run_project` and `get_debug_output` to confirm the game runs and behaves as expected, and to surface runtime errors.
 """
 
+_GODOT_TUGCAN_GUIDANCE = """
+
+You have access to a Godot MCP (Model Context Protocol) server (`@tugcantopaloglu/godot-mcp`) that exposes a large set of tools (~149) for working directly with Godot 4.x projects. The Godot project is the current directory (`./`).
+
+Available MCP Tools include:
+- `get_godot_version`, `get_project_info`, `list_projects`: inspect the Godot install and project structure.
+- `read_scene`, `modify_scene_node`, `add_node`, `attach_script`, `create_scene`: read and edit scenes and scripts programmatically.
+- `run_project` / `stop_project` / `get_debug_output`: run the project headlessly and read back its console/debug output to verify behavior and diagnose errors.
+- `screenshot`: capture the editor/game for visual inspection.
+- Plus tools for rendering, physics, audio, animation, input, and resources.
+
+When to use the MCP tools:
+- Before starting work: use `get_project_info` and `read_scene` to understand the project structure.
+- While building: prefer the scene/node tools over hand-editing `.tscn` files when practical.
+- To verify: use `run_project` and `get_debug_output` to confirm the game runs and behaves as expected.
+
+Note: the runtime `game_*` tools require a `McpInteractionServer` autoload that the benchmark projects do not ship, so prefer the headless tools above (`read_scene`, `modify_scene_node`, `run_project`, `get_debug_output`) for inspection and verification.
+"""
+
 
 SCREENSHOT = MCPServerSpec(
     name="screenshot",
@@ -178,8 +199,24 @@ GODOT = MCPServerSpec(
     prefetch=True,
 )
 
+GODOT_TUGCAN = MCPServerSpec(
+    name="godot-tugcan",
+    server_id="godot-tugcan",
+    command="npx",
+    args=("-y", "@tugcantopaloglu/godot-mcp"),
+    prompt_guidance=_GODOT_TUGCAN_GUIDANCE,
+    # Same GODOT_PATH resolution as the other godot server.
+    env_factory=_godot_mcp_env,
+    # Headless (stdout-only) tools, so parallel runs don't collide on a display.
+    exclusive_display=False,
+    # First `npx` launch downloads the package; prime it once so workers don't race.
+    prefetch=True,
+)
 
-_REGISTRY: Dict[str, MCPServerSpec] = {spec.name: spec for spec in (SCREENSHOT, GODOT)}
+
+_REGISTRY: Dict[str, MCPServerSpec] = {
+    spec.name: spec for spec in (SCREENSHOT, GODOT, GODOT_TUGCAN)
+}
 
 #: Default server preserves the original ``--enable-mcp`` baseline behavior.
 DEFAULT_MCP_SERVER = SCREENSHOT.name

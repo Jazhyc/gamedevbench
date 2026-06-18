@@ -112,17 +112,19 @@ MCP screenshot functionality (`--enable-mcp`) is **cross-platform** (Windows, ma
 |----------------|--------|-------|
 | `screenshot` *(default)* | bundled editor-screenshot server (`mss`, cross-platform) | Captures a whole monitor, so runs are forced to `--workers 1`. Set `GODOT_SCREENSHOT_DISPLAY` to the 1-indexed monitor (`1` = primary; out-of-range falls back to primary). |
 | `godot` | [`@coding-solo/godot-mcp`](https://github.com/Coding-Solo/godot-mcp) | Godot-targeted tools (run/stop project, debug output, scene/node editing, project info, UID/mesh-library management). Headless — safe to run in parallel (`--workers N`). Currently honored only by `--agent openhands`. |
+| `godot-tugcan` | [`@tugcantopaloglu/godot-mcp`](https://github.com/tugcantopaloglu/godot-mcp) | A second Godot-targeted server with a much larger tool set (~149: scene/node editing, run/debug, screenshots, plus rendering/physics/audio/animation). Headless — safe to run in parallel. Its runtime `game_*` tools need a `McpInteractionServer` autoload the benchmark projects don't ship, so only the headless tools apply here. Currently honored only by `--agent openhands`. |
 
-**`godot` server prerequisites & first run:**
+**`godot` / `godot-tugcan` server prerequisites & first run:**
 
-- Needs **Node.js ≥18**; the server is launched via `npx -y @coding-solo/godot-mcp`. `GODOT_PATH` is taken from `GODOT_EXEC_PATH` / `GODOT_PATH` / `godot` on PATH.
+- Needs **Node.js ≥18**; the servers are launched via `npx -y @coding-solo/godot-mcp` and `npx -y @tugcantopaloglu/godot-mcp` respectively. `GODOT_PATH` is taken from `GODOT_EXEC_PATH` / `GODOT_PATH` / `godot` on PATH.
 - The **first launch downloads the package**. The runner pre-fetches it once before dispatching workers, so parallel tasks don't each download it (and the download isn't charged against a task's solve timeout). For a one-off/single-task run, or to warm the cache manually beforehand, run:
 
   ```bash
-  npx -y @coding-solo/godot-mcp < /dev/null   # downloads, starts, exits on EOF
+  npx -y @coding-solo/godot-mcp < /dev/null     # downloads, starts, exits on EOF
+  npx -y @tugcantopaloglu/godot-mcp < /dev/null # same, for the godot-tugcan server
   ```
 
-- ⚠️ **Run under a virtual display (Linux).** Unlike the headless screenshot baseline, godot-mcp exposes a `launch_editor` tool that opens a **real Godot editor GUI window**. Agents sometimes call it; those windows pop onto your desktop, can conflict with a project you have open ("reload scene from disk?"), and may leak as orphaned processes. Wrap the whole run in `xvfb-run` so every editor/window lands on a throwaway virtual display instead of your session:
+- ⚠️ **Run under a virtual display (Linux).** Unlike the headless screenshot baseline, these servers expose tools (e.g. godot-mcp's `launch_editor`) that can open a **real Godot editor GUI window**. Agents sometimes call it; those windows pop onto your desktop, can conflict with a project you have open ("reload scene from disk?"), and may leak as orphaned processes. Wrap the whole run in `xvfb-run` so every editor/window lands on a throwaway virtual display instead of your session:
 
   ```bash
   xvfb-run -a uv run python gamedevbench/src/benchmark_runner.py \

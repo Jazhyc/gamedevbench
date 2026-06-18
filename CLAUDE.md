@@ -137,6 +137,20 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
     requesting it for any other agent fails fast. Example: `--agent openhands
     --model deepseek-v4-pro --encourage-verification --run-name
     deepseek-verify`.
+  - **Sandbox import cache:** `_create_sandbox_environment` ends by calling
+    `_build_sandbox_import_cache`, a one-time headless `--editor --quit` warm-up
+    (`SANDBOX_IMPORT_TIMEOUT`, best-effort) that builds the sandbox's `.godot/`
+    (imported-asset cache + `global_script_class_cache.cfg`). A fresh sandbox
+    has none (starters don't ship it; dot-dirs are skipped on copy), so without
+    this an agent's own `godot --headless` run hits missing imported assets and
+    unresolved custom-`class_name` scene roots ("scene fails to load"). This
+    matters most for the `--encourage-verification` condition, which induces
+    agents to load scenes headless. ⚠️ It changes the agent's environment for
+    **all** runs, so pass@1 may shift vs. historical baselines (re-run the
+    baseline on the warmed sandbox for a clean A/B). Verified empirically:
+    cold load emits `Unable to open file: res://.godot/imported/…` /
+    `[ext_resource] referenced non-existent resource`; after warm-up the same
+    scene loads clean.
   - `--workers N` (default 8) runs a `run --task-list` over **N tasks
     concurrently, each in its own process** — required because the agent solve
     step does a process-global `os.chdir` into its sandbox, so threads can't

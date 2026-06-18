@@ -20,6 +20,13 @@ TEST_SCENE_NAME = "res://scenes/test.tscn"
 # Execution settings
 TIMEOUT = 600
 
+# Seconds allowed for the one-time headless `--editor` warm-up that builds a
+# sandbox's `.godot/` cache (imported assets + global class-name cache) at
+# creation. Mirrors the warm-up the validation path already does; like it, the
+# editor is allowed to run until this timeout and then killed (import work
+# happens during the editor's startup project scan).
+SANDBOX_IMPORT_TIMEOUT = 30
+
 # Grace period (seconds) after the soft timeout before the hard cap forcibly
 # terminates the solver's child process tree. The OpenHands soft cap is a
 # cooperative conversation.pause() that only takes effect between agent steps;

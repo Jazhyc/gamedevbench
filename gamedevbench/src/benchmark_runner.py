@@ -28,6 +28,7 @@ from gamedevbench.src.utils.constants import (
     TEST_SCENE_NAME,
     RESULTS_FOLDER,
     TIMEOUT,
+    SANDBOX_IMPORT_TIMEOUT,
 )
 from gamedevbench.src.utils.data_types import ValidationResult
 from gamedevbench.src.utils.validation import ValidationParser
@@ -660,7 +661,46 @@ script = ExtResource("test_script")
                 if self.debug:
                     print(f"      Warning: Could not create minimal task_config: {e}")
 
+        # Build the import cache so the agent's own headless runs work out of the
+        # box. A freshly-copied sandbox has no `.godot/` (starter projects don't
+        # ship one, and dot-dirs are skipped above), so an agent that runs
+        # `godot --headless --script verify.gd` hits missing imported assets and
+        # unresolved custom `class_name` scene roots ("scene fails to load").
+        self._build_sandbox_import_cache(sandbox_dir)
+
         return sandbox_dir
+
+    def _build_sandbox_import_cache(self, sandbox_dir: Path) -> None:
+        """Warm up a sandbox's Godot import cache (`.godot/`) in place.
+
+        Runs a one-time headless editor pass that scans the project and writes
+        the imported-asset cache plus the global script-class cache, so the
+        agent's subsequent headless runs (e.g. self-written verification
+        scripts) can load scenes/resources instead of failing on a cold cache.
+        Mirrors the warm-up ``validate_task`` performs before running the test
+        scene. Best-effort: the editor is allowed to run until the timeout and
+        then killed (the import happens during its startup scan); any
+        failure/timeout is non-fatal — the agent can still rebuild it itself.
+        """
+        cmd = [
+            self.godot_path,
+            "--headless",
+            "--editor",
+            "--quit",
+            "--path",
+            str(sandbox_dir),
+        ]
+        try:
+            subprocess.run(
+                cmd, capture_output=True, text=True, timeout=SANDBOX_IMPORT_TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            # Expected for larger projects: the scan can outlast --quit. The
+            # cache written so far is still useful.
+            pass
+        except Exception as e:
+            if self.debug:
+                print(f"      Warning: import-cache warm-up failed: {e}")
 
     def _copy_sandbox_results_to_validation(
         self, sandbox_dir: Path, validation_dir: Path, task_dir: Path

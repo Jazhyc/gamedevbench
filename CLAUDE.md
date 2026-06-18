@@ -13,7 +13,7 @@ Godot development** and measuring how they stack up against generic, non-Godot
 tooling. Concretely:
 
 - `--enable-mcp` turns MCP on; `--mcp-server NAME` selects *which* server from
-  the registry in `gamedevbench/src/mcp_servers.py` (default `screenshot`). Each
+  the registry in `gamedevbench/src/mcp_registry.py` (default `screenshot`). Each
   entry is an `MCPServerSpec` (launch command/args/env + server id + prompt
   guidance); solvers translate a spec into their own config format. Add a new
   Godot-targeted server here so it's selectable and comparable against the
@@ -93,7 +93,7 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
   installs a watchdog that calls `conversation.pause()` at the deadline (a soft
   cap — a step already inside one LLM/tool call finishes first). Timed-out runs
   return `success=False`; their partial sandbox work is still validated.
-- `mcp_servers.py` — registry of selectable MCP servers (`MCPServerSpec` +
+- `mcp_registry.py` — registry of selectable MCP servers (`MCPServerSpec` +
   `get_mcp_server`/`available_mcp_servers`). `--mcp-server` picks one; solvers
   read `self.mcp_spec` to build their config and prompt guidance. Specs carry
   `exclusive_display` (forces `--workers 1`) and `prefetch` (one-time

@@ -6,7 +6,7 @@ and each spec carries the launch command + prompt guidance.
 """
 import pytest
 
-from gamedevbench.src import mcp_servers
+from gamedevbench.src import mcp_registry as mcp_servers
 
 
 def test_baseline_is_default():

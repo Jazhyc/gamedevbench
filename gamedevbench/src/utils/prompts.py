@@ -68,7 +68,7 @@ def create_task_prompt(
     if use_mcp:
         if mcp_guidance is None:
             # Import locally to avoid a circular import at module load time.
-            from gamedevbench.src.mcp_servers import get_mcp_server
+            from gamedevbench.src.mcp_registry import get_mcp_server
 
             mcp_guidance = get_mcp_server(None).prompt_guidance
         instruction += mcp_guidance

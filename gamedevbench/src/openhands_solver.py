@@ -21,7 +21,7 @@ from openhands.sdk import (
 from openhands.sdk.security.confirmation_policy import NeverConfirm
 from openhands.tools.preset.default import get_default_tools, get_default_condenser
 from gamedevbench.src.base_solver import BaseSolver
-from gamedevbench.src.mcp_servers import DEFAULT_MCP_SERVER
+from gamedevbench.src.mcp_registry import DEFAULT_MCP_SERVER
 from gamedevbench.src.utils.data_types import SolverResult, TokenUsage
 from gamedevbench.src.utils.prompts import create_system_prompt
 from gamedevbench.src.utils.llm_keys import resolve_api_base, resolve_provider_api_key

@@ -32,7 +32,7 @@ from gamedevbench.src.utils.constants import (
 from gamedevbench.src.utils.data_types import ValidationResult
 from gamedevbench.src.utils.validation import ValidationParser
 from gamedevbench.src.solver_factory import SolverFactory
-from gamedevbench.src.mcp_servers import (
+from gamedevbench.src.mcp_registry import (
     DEFAULT_MCP_SERVER,
     available_mcp_servers,
     get_mcp_server,

@@ -5,7 +5,7 @@ Uses registry pattern for modular solver management.
 """
 from typing import Dict, Type, Optional
 from gamedevbench.src.base_solver import BaseSolver
-from gamedevbench.src.mcp_servers import DEFAULT_MCP_SERVER, get_mcp_server
+from gamedevbench.src.mcp_registry import DEFAULT_MCP_SERVER, get_mcp_server
 from gamedevbench.src.claude_code_solver import ClaudeCodeSolver
 from gamedevbench.src.mini_swe_solver import MiniSweSolver
 from gamedevbench.src.codex_solver import CodexSolver

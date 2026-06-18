@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 from gamedevbench.src.utils.data_types import SolverResult
 from gamedevbench.src.utils.prompts import load_task_config, create_task_prompt
-from gamedevbench.src.mcp_servers import DEFAULT_MCP_SERVER, get_mcp_server
+from gamedevbench.src.mcp_registry import DEFAULT_MCP_SERVER, get_mcp_server
 
 
 class BaseSolver(ABC):

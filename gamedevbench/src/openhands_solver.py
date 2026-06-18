@@ -156,6 +156,9 @@ class OpenHandsSolver(BaseSolver):
             print(prompt)
             print("=" * 60)
 
+        # A live Godot editor (godot-ai) is brought up inside the try and must be
+        # torn down whatever happens; bind it here so the finally can see it.
+        editor_session = None
         try:
             # Get API key from environment based on model provider prefix
             api_key, key_name = resolve_provider_api_key(self.model)
@@ -184,17 +187,49 @@ class OpenHandsSolver(BaseSolver):
 
             # Build the MCP server config from the selected registry spec so the
             # server is swappable per run (e.g. the bundled screenshot baseline
-            # vs. the Godot-targeted @coding-solo/godot-mcp).
-            server_config = {
-                "command": self.mcp_spec.command,
-                "args": list(self.mcp_spec.args),
-            }
-            server_env = self.mcp_spec.env()
-            if server_env:
-                server_config["env"] = server_env
+            # vs. the Godot-targeted @coding-solo/godot-mcp). stdio servers are
+            # launched by the agent from command/args; http servers (godot-ai)
+            # are reached at a URL — the editor plugin owns that process, started
+            # by the editor session below.
+            if self.mcp_spec.transport == "http":
+                server_config = {
+                    "url": self.mcp_spec.http_url,
+                    "transport": "http",
+                }
+            else:
+                server_config = {
+                    "command": self.mcp_spec.command,
+                    "args": list(self.mcp_spec.args),
+                }
+                server_env = self.mcp_spec.env()
+                if server_env:
+                    server_config["env"] = server_env
             mcp_config = {
                 "mcpServers": {self.mcp_spec.server_id: server_config}
             }
+
+            # Servers backed by a Godot editor plugin (godot-ai) need a live
+            # editor running this server's plugin before the agent connects. Bring
+            # it up in the sandbox (cwd) now; it is torn down in the finally below.
+            # Startup happens before the watchdog starts, so it isn't charged to
+            # the task timeout (mirrors the runner's headless asset-import step).
+            if self.use_mcp and self.mcp_spec.needs_godot_editor:
+                from pathlib import Path
+                from gamedevbench.src.godot_ai_editor import (
+                    GodotAiEditorSession,
+                    ensure_addon,
+                )
+                from gamedevbench.src.utils.constants import GODOT_EXEC_PATH
+
+                editor_session = GodotAiEditorSession(
+                    project_dir=Path(os.getcwd()),
+                    godot_path=GODOT_EXEC_PATH,
+                    http_url=self.mcp_spec.http_url,
+                    addon_src=ensure_addon(),
+                    extra_env=self.mcp_spec.env(),
+                    debug=self.debug,
+                )
+                editor_session.__enter__()
 
             # Create agent with default tool selection (CLI mode disables browser)
             # We construct the Agent manually because it's a frozen Pydantic model
@@ -393,6 +428,14 @@ class OpenHandsSolver(BaseSolver):
                 duration_seconds=duration,
                 is_rate_limited=is_rate_limited,
             )
+        finally:
+            # Always tear the godot-ai editor (and its server/Xvfb) down, on
+            # success, failure, or timeout — so nothing leaks into the next task.
+            if editor_session is not None:
+                try:
+                    editor_session.__exit__(None, None, None)
+                except Exception:
+                    pass
 
 
 def main():

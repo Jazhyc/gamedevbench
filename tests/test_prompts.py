@@ -49,13 +49,11 @@ def test_verification_nudge_appended_only_when_requested():
     )
     without = prompts.create_task_prompt({"instruction": "x"})
     # Light nudge: tells the agent to verify behaviour and run a headless check,
-    # but ships no script template / introspection idioms.
+    # but ships no script template / introspection idioms and no import/invocation
+    # mechanics (the sandbox import-cache warm-up handles that environmentally).
     assert "verify" in with_nudge.lower()
     assert "godot --headless --script" in with_nudge
-    # Minimal mechanics so the self-test actually runs (cold-import + stdin gaps):
-    # import the project first, and run a file rather than piping via stdin.
-    assert "--import" in with_nudge
-    assert "--script -" in with_nudge  # the "do NOT pipe via stdin" warning
+    assert "--import" not in with_nudge  # mechanics live in the sandbox warm-up
     assert "verify" not in without.lower()
 
 

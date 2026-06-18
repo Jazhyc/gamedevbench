@@ -101,3 +101,24 @@ def test_create_with_mcp_on_supported_sets_flag(restore_registry):
     SolverFactory.register_solver("dummy-mcp", _DummyMcpSolver)
     solver = SolverFactory.create_solver("dummy-mcp", use_mcp=True)
     assert solver.use_mcp is True
+    # Default selection resolves to the screenshot baseline.
+    assert solver.mcp_server == "screenshot"
+
+
+def test_unknown_mcp_server_rejected(restore_registry):
+    SolverFactory.register_solver("dummy-mcp", _DummyMcpSolver)
+    with pytest.raises(ValueError, match="Unknown MCP server"):
+        SolverFactory.create_solver(
+            "dummy-mcp", use_mcp=True, mcp_server="bogus"
+        )
+
+
+def test_non_default_mcp_server_requires_openhands(restore_registry):
+    # Only the OpenHands solver honors a server selection today; pairing a
+    # non-default server with any other agent must fail loudly, not silently
+    # fall back to the screenshot baseline.
+    SolverFactory.register_solver("dummy-mcp", _DummyMcpSolver)
+    with pytest.raises(ValueError, match="only supported with the 'openhands'"):
+        SolverFactory.create_solver(
+            "dummy-mcp", use_mcp=True, mcp_server="godot"
+        )

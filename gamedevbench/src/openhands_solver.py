@@ -21,6 +21,7 @@ from openhands.sdk import (
 from openhands.sdk.security.confirmation_policy import NeverConfirm
 from openhands.tools.preset.default import get_default_tools, get_default_condenser
 from gamedevbench.src.base_solver import BaseSolver
+from gamedevbench.src.mcp_servers import DEFAULT_MCP_SERVER
 from gamedevbench.src.utils.data_types import SolverResult, TokenUsage
 from gamedevbench.src.utils.prompts import create_system_prompt
 from gamedevbench.src.utils.llm_keys import resolve_api_base, resolve_provider_api_key
@@ -59,6 +60,7 @@ class OpenHandsSolver(BaseSolver):
         api_base: Optional[str] = None,
         openrouter_site_url: Optional[str] = None,
         openrouter_app_name: Optional[str] = None,
+        mcp_server: str = DEFAULT_MCP_SERVER,
     ):
         """
         Initialize the OpenHands solver.
@@ -69,9 +71,12 @@ class OpenHandsSolver(BaseSolver):
             use_mcp: Whether to use MCP tools
             model: Model to use (default: openai/gpt-4o, supports vision)
             use_runtime_video: Whether to append Godot runtime video instructions to prompts
+            mcp_server: Name of the MCP server to wire in when use_mcp is set
         """
         # Call parent constructor (handles MCP validation)
-        super().__init__(timeout_seconds, debug, use_mcp, use_runtime_video)
+        super().__init__(
+            timeout_seconds, debug, use_mcp, use_runtime_video, mcp_server=mcp_server
+        )
 
         # OpenHands-specific parameters
         # Convert short model names to litellm format
@@ -142,13 +147,18 @@ class OpenHandsSolver(BaseSolver):
                 openrouter_app_name=self.openrouter_app_name or "OpenHands",
             )
 
+            # Build the MCP server config from the selected registry spec so the
+            # server is swappable per run (e.g. the bundled screenshot baseline
+            # vs. the Godot-targeted @coding-solo/godot-mcp).
+            server_config = {
+                "command": self.mcp_spec.command,
+                "args": list(self.mcp_spec.args),
+            }
+            server_env = self.mcp_spec.env()
+            if server_env:
+                server_config["env"] = server_env
             mcp_config = {
-                "mcpServers": {
-                    "godot-screenshot": {
-                        "command": "uv",
-                        "args": ["run", "gamedevbench-mcp"]
-                    }
-                }
+                "mcpServers": {self.mcp_spec.server_id: server_config}
             }
 
             # Create agent with default tool selection (CLI mode disables browser)

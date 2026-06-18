@@ -5,6 +5,7 @@ Uses registry pattern for modular solver management.
 """
 from typing import Dict, Type, Optional
 from gamedevbench.src.base_solver import BaseSolver
+from gamedevbench.src.mcp_servers import DEFAULT_MCP_SERVER, get_mcp_server
 from gamedevbench.src.claude_code_solver import ClaudeCodeSolver
 from gamedevbench.src.mini_swe_solver import MiniSweSolver
 from gamedevbench.src.codex_solver import CodexSolver
@@ -43,6 +44,7 @@ class SolverFactory:
         use_mcp: bool = False,
         timeout_seconds: int = 600,
         use_runtime_video: bool = False,
+        mcp_server: str = DEFAULT_MCP_SERVER,
     ) -> BaseSolver:
         """
         Create a solver instance based on agent type.
@@ -54,6 +56,9 @@ class SolverFactory:
             use_mcp: Enable MCP server functionality (will validate solver supports it)
             timeout_seconds: Maximum time for solver execution
             use_runtime_video: Enable runtime video mode (appends Godot runtime instructions to prompts)
+            mcp_server: Name of the MCP server to use when use_mcp is set. Only
+                the OpenHands solver currently honors a non-default selection;
+                requesting a non-default server for any other agent raises.
 
         Returns:
             Configured solver instance
@@ -85,6 +90,18 @@ class SolverFactory:
                 f"Solvers with MCP support: {cls.get_mcp_capable_solvers()}"
             )
 
+        # Validate the server name early (fails fast on a typo) and guard the
+        # OpenHands-only wiring: other solvers still hardcode the screenshot
+        # baseline, so a non-default selection there would be silently ignored.
+        get_mcp_server(mcp_server)
+        if use_mcp and mcp_server != DEFAULT_MCP_SERVER and agent != "openhands":
+            raise ValueError(
+                f"Selecting MCP server '{mcp_server}' is only supported with the "
+                f"'openhands' agent right now; agent '{agent}' uses the "
+                f"'{DEFAULT_MCP_SERVER}' baseline. Use --agent openhands or drop "
+                f"--mcp-server."
+            )
+
         # Build kwargs based on what each solver accepts
         kwargs = {
             "debug": debug,
@@ -104,6 +121,12 @@ class SolverFactory:
         # Add use_mcp for solvers that support it
         if solver_class.SUPPORTS_MCP:
             kwargs["use_mcp"] = use_mcp
+
+        # Only OpenHands accepts a server selection today; other solver __init__s
+        # don't take mcp_server, and the guard above already rejects non-default
+        # selections for them.
+        if agent == "openhands":
+            kwargs["mcp_server"] = mcp_server
 
         # Create and return solver instance
         # The BaseSolver.__init__ will perform final validation

@@ -32,6 +32,11 @@ from gamedevbench.src.utils.constants import (
 from gamedevbench.src.utils.data_types import ValidationResult
 from gamedevbench.src.utils.validation import ValidationParser
 from gamedevbench.src.solver_factory import SolverFactory
+from gamedevbench.src.mcp_servers import (
+    DEFAULT_MCP_SERVER,
+    available_mcp_servers,
+    get_mcp_server,
+)
 
 
 def _run_task_in_worker(runner: "GodotBenchmarkRunner", task_name: str) -> Dict:
@@ -58,6 +63,7 @@ class GodotBenchmarkRunner:
         use_runtime_video: bool = False,
         run_name: Optional[str] = None,
         workers: int = 1,
+        mcp_server: str = DEFAULT_MCP_SERVER,
     ):
         """
         Initialize the benchmark runner.
@@ -105,19 +111,21 @@ class GodotBenchmarkRunner:
         safe_model = model.replace("/", "_") if model else "default"
         self.progress_file = self.results_dir / f"progress_{agent}_{safe_model}.json"
         self.use_mcp = use_mcp
+        self.mcp_server = mcp_server
+        self.mcp_spec = get_mcp_server(mcp_server)
         self.resume_from = resume_from
         self.skip_display = skip_display
         self.use_runtime_video = use_runtime_video
         self.workers = max(1, int(workers))
 
-        # The bundled screenshot MCP server launches the Godot editor fullscreen
-        # and captures a whole monitor; running several in parallel would fight
-        # over the same display, so MCP runs are forced back to sequential.
-        if self.use_mcp and self.workers > 1:
+        # Only MCP servers that grab a shared resource (the screenshot baseline
+        # captures a whole monitor) force sequential runs; headless servers like
+        # godot-mcp run as independent per-task processes, so parallelism is safe.
+        if self.use_mcp and self.mcp_spec.exclusive_display and self.workers > 1:
             print(
-                f"⚠️  MCP enabled — forcing workers=1 (was {self.workers}); the "
-                "screenshot server captures a full monitor and parallel runs "
-                "would collide."
+                f"⚠️  MCP server '{self.mcp_server}' captures a full monitor — "
+                f"forcing workers=1 (was {self.workers}); parallel runs would "
+                "collide on the shared display."
             )
             self.workers = 1
 
@@ -159,6 +167,19 @@ class GodotBenchmarkRunner:
                 f"Agent '{self.agent}' does not support MCP. "
                 f"Set use_mcp=False or use a solver that supports MCP. "
                 f"MCP-capable solvers: {', '.join(mcp_capable)}"
+            )
+
+        # Fail fast (before any task runs) if a non-default MCP server is paired
+        # with an agent that doesn't honor the selection yet (OpenHands-only).
+        if (
+            self.use_mcp
+            and self.mcp_server != DEFAULT_MCP_SERVER
+            and self.agent != "openhands"
+        ):
+            raise ValueError(
+                f"--mcp-server {self.mcp_server} is only supported with "
+                f"'--agent openhands' right now; '{self.agent}' uses the "
+                f"'{DEFAULT_MCP_SERVER}' baseline."
             )
 
         # Provide informational message in debug mode
@@ -490,6 +511,7 @@ script = ExtResource("test_script")
                     "agent": self.agent,
                     "model": self.model,
                     "use_mcp": self.use_mcp,
+                    "mcp_server": self.mcp_server,
                     "use_runtime_video": self.use_runtime_video,
                     "skip_display": self.skip_display,
                     "debug": self.debug,
@@ -511,6 +533,7 @@ script = ExtResource("test_script")
             "agent": self.agent,
             "model": self.model,
             "use_mcp": self.use_mcp,
+            "mcp_server": self.mcp_server,
             "use_runtime_video": self.use_runtime_video,
             "skip_display": self.skip_display,
             "debug": self.debug,
@@ -845,6 +868,7 @@ script = ExtResource("test_script")
                 "agent": self.agent,
                 "model": self.model,
                 "use_mcp": self.use_mcp,
+                "mcp_server": self.mcp_server,
                 "use_runtime_video": self.use_runtime_video,
                 "skip_display": self.skip_display,
                 "debug": self.debug,
@@ -902,6 +926,7 @@ script = ExtResource("test_script")
                     use_mcp=self.use_mcp,
                     timeout_seconds=TIMEOUT,
                     use_runtime_video=self.use_runtime_video,
+                    mcp_server=self.mcp_server,
                 )
                 solver_result = solver.solve_task()
 
@@ -995,6 +1020,7 @@ script = ExtResource("test_script")
                 "agent": self.agent,
                 "model": display_model,
                 "use_mcp": self.use_mcp,
+                "mcp_server": self.mcp_server,
                 "use_runtime_video": self.use_runtime_video,
                 "skip_display": self.skip_display,
                 "debug": self.debug,
@@ -1119,6 +1145,7 @@ script = ExtResource("test_script")
             "agent": self.agent,
             "model": self.model,
             "use_mcp": self.use_mcp,
+            "mcp_server": self.mcp_server,
             "use_runtime_video": self.use_runtime_video,
             "skip_display": self.skip_display,
             "debug": self.debug,
@@ -1445,6 +1472,7 @@ script = ExtResource("test_script")
                 "agent": self.agent,
                 "model": self.model,
                 "use_mcp": self.use_mcp,
+                "mcp_server": self.mcp_server,
                 "use_runtime_video": self.use_runtime_video,
                 "skip_display": self.skip_display,
                 "debug": self.debug,
@@ -1486,6 +1514,7 @@ script = ExtResource("test_script")
             "agent",
             "model",
             "use_mcp",
+            "mcp_server",
             "use_runtime_video",
             "skip_display",
             "debug",
@@ -1515,6 +1544,7 @@ script = ExtResource("test_script")
                     "agent": result.get("agent", ""),
                     "model": result.get("model", ""),
                     "use_mcp": result.get("use_mcp", False),
+                    "mcp_server": result.get("mcp_server", DEFAULT_MCP_SERVER),
                     "use_runtime_video": result.get("use_runtime_video", False),
                     "skip_display": result.get("skip_display", False),
                     "debug": result.get("debug", False),
@@ -1561,6 +1591,15 @@ def main():
         "--enable-mcp",
         help="Enable MCP server functionality for supported agents",
         action="store_true",
+    )
+    parser.add_argument(
+        "--mcp-server",
+        choices=available_mcp_servers(),
+        default=DEFAULT_MCP_SERVER,
+        help="Which MCP server to wire in when --enable-mcp is set "
+        f"(default: {DEFAULT_MCP_SERVER}). A non-default server (e.g. 'godot', "
+        "the @coding-solo/godot-mcp server) is currently honored only by "
+        "--agent openhands.",
     )
     parser.add_argument(
         "--skip-display",
@@ -1629,6 +1668,7 @@ def main():
         use_runtime_video=args.use_runtime_video,
         run_name=args.run_name,
         workers=args.workers,
+        mcp_server=args.mcp_server,
     )
 
     if args.command == "list":

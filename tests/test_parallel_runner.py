@@ -52,10 +52,21 @@ def test_workers_floored_to_one():
     assert runner.workers == 1
 
 
-def test_workers_clamped_to_one_with_mcp(capsys):
+def test_workers_clamped_to_one_with_monitor_grabbing_mcp(capsys):
+    # The default screenshot server captures a whole monitor -> serial only.
     runner = GodotBenchmarkRunner(use_gt=False, agent=None, use_mcp=True, workers=8)
     assert runner.workers == 1
     assert "forcing workers=1" in capsys.readouterr().out
+
+
+def test_workers_not_clamped_with_headless_mcp(capsys):
+    # godot-mcp runs headless (per-task processes, no shared monitor), so it must
+    # NOT force serial execution. agent=None skips the OpenHands-only guard.
+    runner = GodotBenchmarkRunner(
+        use_gt=False, agent=None, use_mcp=True, mcp_server="godot", workers=8
+    )
+    assert runner.workers == 8
+    assert "forcing workers=1" not in capsys.readouterr().out
 
 
 def test_workers_passthrough():

@@ -24,13 +24,21 @@ def load_task_config() -> Optional[dict]:
         return None
 
 
-def create_task_prompt(config: dict, use_runtime_video: bool = False, use_mcp: bool = False) -> str:
+def create_task_prompt(
+    config: dict,
+    use_runtime_video: bool = False,
+    use_mcp: bool = False,
+    mcp_guidance: Optional[str] = None,
+) -> str:
     """Create minimal task prompt with just the instruction.
 
     Args:
         config: Task configuration dict containing 'instruction' field
         use_runtime_video: Whether to append Godot runtime video instructions
         use_mcp: Whether to include MCP tool references
+        mcp_guidance: Guidance text for the selected MCP server. When ``use_mcp``
+            is set and this is None, the bundled screenshot guidance is used
+            (preserves the original baseline behavior).
 
     Returns:
         The instruction text with optional runtime video and MCP guidance
@@ -58,21 +66,11 @@ def create_task_prompt(config: dict, use_runtime_video: bool = False, use_mcp: b
         instruction += runtime_guidance
 
     if use_mcp:
-        mcp_guidance = """
+        if mcp_guidance is None:
+            # Import locally to avoid a circular import at module load time.
+            from gamedevbench.src.mcp_servers import get_mcp_server
 
-You have access to a Godot MCP (Model Context Protocol) server that provides specialized tools for working with Godot projects.
-
-Available MCP Tools:
-- `godot-screenshot`: Takes a screenshot of the Godot editor to help you visualize the current state of the project.
-  - The game directory is the current directory (`./`)
-  - This is useful for understanding the scene hierarchy, node structure, and visual layout
-  - You can use this before making changes to understand the current state, and after to verify your changes
-
-When to use the MCP tools:
-- Before starting work: Use `godot-screenshot` to understand the current project structure
-- After making changes: Use `godot-screenshot` to verify your changes are correct
-- When debugging: Use `godot-screenshot` to see what the editor looks like and identify issues
-"""
+            mcp_guidance = get_mcp_server(None).prompt_guidance
         instruction += mcp_guidance
 
     return instruction

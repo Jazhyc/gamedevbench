@@ -12,12 +12,27 @@ We are extending the harness to support **MCP servers that specifically target
 Godot development** and measuring how they stack up against generic, non-Godot
 tooling. Concretely:
 
-- The current `--enable-mcp` path wires in one bundled, cross-platform
-  screenshot MCP server (`gamedevbench/src/mcp_server.py`, capture via `mss`).
-  Treat that as the *baseline* MCP integration to generalize from.
-- New Godot-targeted MCP servers should be selectable per run and isolated with
-  `--run-name` so each configuration's `results/` are directly comparable
-  against a generic/no-MCP baseline.
+- `--enable-mcp` turns MCP on; `--mcp-server NAME` selects *which* server from
+  the registry in `gamedevbench/src/mcp_servers.py` (default `screenshot`). Each
+  entry is an `MCPServerSpec` (launch command/args/env + server id + prompt
+  guidance); solvers translate a spec into their own config format. Add a new
+  Godot-targeted server here so it's selectable and comparable against the
+  baseline. Isolate each configuration's `results/` with `--run-name`.
+- Registered servers:
+  - `screenshot` — bundled, cross-platform baseline
+    (`gamedevbench/src/mcp_server.py`, capture via `mss`). One tool,
+    `godot-screenshot`.
+  - `godot` — third-party Godot-targeted server
+    [`@coding-solo/godot-mcp`](https://github.com/Coding-Solo/godot-mcp), run via
+    `npx -y @coding-solo/godot-mcp` (needs Node ≥18). Exposes ~13 tools
+    (run/stop project, get debug output, scene/node editing, version/project
+    info, mesh-library export, UID management). `GODOT_PATH` is set from
+    `GODOT_EXEC_PATH`/`GODOT_PATH`/`which godot`.
+- **Only the OpenHands solver honors a non-default `--mcp-server` so far** (it's
+  DeepSeek's path); the other solvers still hardcode the `screenshot` baseline,
+  so pairing `--mcp-server godot` with any other agent fails fast. Example:
+  `--agent openhands --model deepseek-v4-pro --enable-mcp --mcp-server godot
+  --run-name deepseek-godotmcp`.
 - When you add an MCP integration, record what it exposes and how to run it
   here (or in `docs/` — see Conventions) so comparisons stay reproducible.
 
@@ -50,17 +65,19 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
 ## Architecture
 
 - `gamedevbench/src/benchmark_runner.py` — CLI + orchestration. Global flags
-  (`--agent`, `--model`, `--enable-mcp`, `--use-runtime-video`, `--skip-display`,
-  `--run-name`, `--resume[-from]`, `--workers`) + subcommands `list` / `open` /
+  (`--agent`, `--model`, `--enable-mcp`, `--mcp-server`, `--use-runtime-video`,
+  `--skip-display`, `--run-name`, `--resume[-from]`, `--workers`) + subcommands `list` / `open` /
   `validate` / `run`. `--gt` operates on ground-truth tasks.
   - `--workers N` (default 8) runs a `run --task-list` over **N tasks
     concurrently, each in its own process** — required because the agent solve
     step does a process-global `os.chdir` into its sandbox, so threads can't
     isolate it. Per-task sandboxes/validation dirs are already unique, and
-    progress is checkpointed after each task (resume-safe). Forced to 1 when
-    `--enable-mcp` is set (the screenshot server grabs a whole monitor, so
-    parallel runs would collide). DeepSeek-text runs have no display contention,
-    so 8 is safe there.
+    progress is checkpointed after each task (resume-safe). Forced to 1 only
+    when the selected MCP server grabs a shared monitor
+    (`MCPServerSpec.exclusive_display`, true for the `screenshot` baseline);
+    headless servers like `godot` run as independent per-task processes, so
+    parallelism stays on. DeepSeek-text runs have no display contention, so 8 is
+    safe there too.
 - `base_solver.py` — `BaseSolver` ABC. Subclasses set `SUPPORTS_MCP` /
   `SUPPORTS_SYSTEM_PROMPT` and implement `solve_task()` + `is_rate_limit_error()`.
 - `solver_factory.py` — `SolverFactory._SOLVER_REGISTRY` maps agent name → solver
@@ -72,9 +89,13 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
   installs a watchdog that calls `conversation.pause()` at the deadline (a soft
   cap — a step already inside one LLM/tool call finishes first). Timed-out runs
   return `success=False`; their partial sandbox work is still validated.
-- `mcp_server.py` — the bundled Godot screenshot MCP server. Launches the editor
-  fullscreen on a screen and captures that monitor; cross-platform via `mss`
-  (`GODOT_SCREENSHOT_DISPLAY`, 1-indexed, falls back to primary).
+- `mcp_servers.py` — registry of selectable MCP servers (`MCPServerSpec` +
+  `get_mcp_server`/`available_mcp_servers`). `--mcp-server` picks one; solvers
+  read `self.mcp_spec` to build their config and prompt guidance.
+- `mcp_server.py` — the bundled Godot screenshot MCP server (registry entry
+  `screenshot`). Launches the editor fullscreen on a screen and captures that
+  monitor; cross-platform via `mss` (`GODOT_SCREENSHOT_DISPLAY`, 1-indexed,
+  falls back to primary).
 - `utils/prompts.py` — `load_task_config()` + `create_task_prompt()`; prompt
   text for runtime-video and MCP guidance is injected here.
 - `utils/validation.py` — `ValidationParser` greps Godot output for

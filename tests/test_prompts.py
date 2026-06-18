@@ -21,8 +21,26 @@ def test_runtime_video_guidance_appended_only_when_requested():
 def test_mcp_guidance_appended_only_when_requested():
     with_mcp = prompts.create_task_prompt({"instruction": "x"}, use_mcp=True)
     without = prompts.create_task_prompt({"instruction": "x"})
+    # Defaults to the screenshot baseline guidance.
     assert "godot-screenshot" in with_mcp
     assert "godot-screenshot" not in without
+
+
+def test_explicit_mcp_guidance_overrides_default():
+    custom = "\n\nUse the run_project tool to verify."
+    out = prompts.create_task_prompt(
+        {"instruction": "x"}, use_mcp=True, mcp_guidance=custom
+    )
+    assert "run_project" in out
+    # The custom guidance replaces the screenshot baseline text.
+    assert "godot-screenshot" not in out
+
+
+def test_mcp_guidance_ignored_when_mcp_disabled():
+    out = prompts.create_task_prompt(
+        {"instruction": "x"}, use_mcp=False, mcp_guidance="should not appear"
+    )
+    assert "should not appear" not in out
 
 
 def test_invalid_config_returns_empty_string():

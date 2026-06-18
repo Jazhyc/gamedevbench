@@ -47,28 +47,33 @@ tooling. Concretely:
     structurally different from the others: it's a Godot **editor plugin** (not a
     standalone stdio server) that spawns a Python FastMCP server the agent
     reaches over **HTTP**, bridged to a *live editor* over a WebSocket. So the
-    spec uses `transport="http"` + `http_url` (default `http://127.0.0.1:8000/mcp`)
-    and `needs_godot_editor=True`; `command`/`args` (`uvx godot-ai==<ver>`) only
-    prime the package cache in `warm_up`. For each task the OpenHands solver runs
-    a per-task editor lifecycle via `godot_ai_editor.py`: cache the pinned addon
-    (shallow clone of tag `v<ver>`, reused across runs; override the cache dir
-    with `GAMEDEVBENCH_GODOT_AI_CACHE`), install it into the sandbox + enable the
-    plugin in `project.godot`, launch the editor under `xvfb-run`, poll
-    `editor_state` until `readiness==ready`, then tear the editor's whole process
-    group down (reaps the server **and** the `Xvfb` that `xvfb-run` would
-    orphan) and **strip the plugin footprint** from the sandbox — the addon dir,
-    the `[editor_plugins]` enable entry, and the `_mcp_game_helper` autoload the
-    plugin injects into `project.godot` — so the agent's work is scored in a
-    clean project (that autoload otherwise runs during headless validation). Exposes ~41 tools / ~120 ops (scene/node/script/signal editing,
-    run+debug, screenshot, UI/material/animation/etc.) operating on the live
-    editor. Notes: its server **phones home telemetry** by default — the spec env
-    sets `GODOT_AI_DISABLE_TELEMETRY=1`/`DISABLE_TELEMETRY=1`; the plugin
-    self-disables under a true `--headless` editor unless `GODOT_AI_ALLOW_HEADLESS=1`
-    (so we use `xvfb`). ⚠️ **Forces `--workers 1`** (`requires_single_worker`):
-    its ports come only from global EditorSettings (no env override), so parallel
-    editors would collide on ports 8000/9500. Per-worker parallelism would need
-    per-worker EditorSettings pre-seeding (a follow-up). Manual warm-up:
-    `uvx --from godot-ai==<ver> godot-ai --version`.
+    spec uses `transport="http"` + `needs_godot_editor=True`; `command`/`args`
+    (`uvx godot-ai==<ver>`) only prime the package cache in `warm_up`. For each
+    task the OpenHands solver runs a per-task editor lifecycle via
+    `godot_ai_editor.py`: cache the pinned addon (shallow clone of tag `v<ver>`,
+    reused across runs; override the cache dir with `GAMEDEVBENCH_GODOT_AI_CACHE`)
+    **patched so its server ports come from env vars** (stock godot-ai reads
+    them only from global EditorSettings), install it into the sandbox + enable
+    the plugin, launch the editor under `xvfb-run` on a **per-task free port pair
+    with `XDG_CONFIG_HOME`/`XDG_DATA_HOME` isolated** to a throwaway dir, poll
+    `editor_state` until `readiness==ready` (the agent's MCP URL is the session's
+    `http_url`), then tear down: killpg the editor group (reaps the `Xvfb` that
+    `xvfb-run` would orphan), **explicitly reap the detached server** via its
+    `user://godot_ai_server.pid` pid-file under the isolated data dir (the editor's
+    killpg doesn't reach it), and **strip the plugin footprint** from the sandbox
+    — the addon dir, the `[editor_plugins]` enable entry, and the
+    `_mcp_game_helper` autoload the plugin injects into `project.godot` — so the
+    agent's work is scored in a clean project (that autoload otherwise runs during
+    headless validation). Exposes ~41 tools / ~120 ops (scene/node/script/signal
+    editing, run+debug, screenshot, UI/material/animation/etc.) operating on the
+    live editor. **Runs in parallel** (`--workers N`): each task's editor has its
+    own ports + isolated editor state, so unlike the screenshot baseline it does
+    NOT force `--workers 1`. Notes: its server **phones home telemetry** by
+    default — the spec env sets `GODOT_AI_DISABLE_TELEMETRY=1`/`DISABLE_TELEMETRY=1`;
+    the plugin self-disables under a true `--headless` editor unless
+    `GODOT_AI_ALLOW_HEADLESS=1` (so we use `xvfb`). Each worker runs a full Godot
+    editor GUI under xvfb + a Python server, so it's heavy — moderate `--workers`
+    (e.g. 4–8), not 64. Manual warm-up: `uvx --from godot-ai==<ver> godot-ai --version`.
   - The `godot` server's `launch_editor` tool opens a real Godot **editor GUI window** (agents
     do call it); the windows pop onto the host display, can collide with a
     project you have open, and leak as orphaned processes. They're sandboxed
@@ -148,13 +153,17 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
   `prefetch` (one-time `warm_up()` before dispatch); `transport`
   (`"stdio"`/`"http"`) + `http_url` for how the agent reaches the server; and
   `needs_godot_editor` for plugin-backed servers. `requires_single_worker`
-  (true when `exclusive_display` **or** `needs_godot_editor`) forces
-  `--workers 1`.
+  (true only for `exclusive_display`) forces `--workers 1` — `needs_godot_editor`
+  servers run in parallel (per-task ports + isolated editor state).
 - `godot_ai_editor.py` — per-task editor lifecycle for the `godot-ai` server
-  (`ensure_addon`, `install_addon`/`enable_plugin_text`, `wait_until_ready`,
-  `GodotAiEditorSession`): caches+installs the addon, launches the editor under
-  `xvfb`, waits for `editor_state` readiness, and killpg's the editor's process
-  group on exit. Driven by the OpenHands solver.
+  (`ensure_addon` + `_patch_addon_env_ports`, `install_addon`/`enable_plugin_text`,
+  `free_port`, `wait_until_ready`, `cleanup_project_footprint`, `_reap_servers`,
+  `GodotAiEditorSession`): caches+patches+installs the addon, launches the editor
+  under `xvfb` on a per-task free port pair with isolated `XDG_CONFIG_HOME`/
+  `XDG_DATA_HOME`, waits for `editor_state` readiness, and on exit killpg's the
+  editor group, reaps the detached server by pid-file, and strips the footprint.
+  Driven by the OpenHands solver; the runner pre-clones the addon once (parallel
+  workers don't race the clone).
 - `mcp_server.py` — the bundled Godot screenshot MCP server (registry entry
   `screenshot`). Launches the editor fullscreen on a screen and captures that
   monitor; cross-platform via `mss` (`GODOT_SCREENSHOT_DISPLAY`, 1-indexed,

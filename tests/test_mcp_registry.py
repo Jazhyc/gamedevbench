@@ -67,17 +67,21 @@ def test_godot_ai_uses_http_transport_via_editor():
     assert f"godot-ai=={mcp_servers.GODOT_AI_VERSION}" in spec.args
 
 
-def test_godot_ai_forces_single_worker():
-    # Fixed host ports (EditorSettings-only) collide across parallel editors.
-    assert mcp_servers.get_mcp_server("godot-ai").requires_single_worker is True
+def test_godot_ai_runs_in_parallel():
+    # Each task's editor gets its own free ports + isolated state, so godot-ai
+    # is NOT single-worker despite needing a per-task editor.
+    spec = mcp_servers.get_mcp_server("godot-ai")
+    assert spec.needs_godot_editor is True
+    assert spec.requires_single_worker is False
 
 
-def test_requires_single_worker_matches_resource_grab():
-    # screenshot grabs a monitor; godot-ai needs a per-task editor; the stdio
-    # servers grab neither and stay parallel-safe.
+def test_requires_single_worker_only_for_monitor_grab():
+    # Only the screenshot baseline (whole monitor) forces serial; everything
+    # else — stdio servers and the editor-backed godot-ai — stays parallel-safe.
     assert mcp_servers.get_mcp_server("screenshot").requires_single_worker is True
     assert mcp_servers.get_mcp_server("godot").requires_single_worker is False
     assert mcp_servers.get_mcp_server("godot-tugcan").requires_single_worker is False
+    assert mcp_servers.get_mcp_server("godot-ai").requires_single_worker is False
 
 
 def test_godot_ai_env_disables_telemetry(monkeypatch):

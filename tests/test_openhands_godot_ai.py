@@ -33,7 +33,7 @@ class _FakeConversation:
 
 
 class _FakeEditorSession:
-    """Records enter/exit and the http_url the solver wired in."""
+    """Records enter/exit and exposes a per-session http_url like the real one."""
 
     instances = []
 
@@ -41,10 +41,13 @@ class _FakeEditorSession:
         self.kwargs = kwargs
         self.entered = False
         self.exited = False
+        self.http_url = ""
         type(self).instances.append(self)
 
     def __enter__(self):
         self.entered = True
+        # Mimic the real session allocating its own per-task port.
+        self.http_url = "http://127.0.0.1:51234/mcp"
         return self
 
     def __exit__(self, *exc):
@@ -90,16 +93,15 @@ def test_godot_ai_builds_http_config_and_runs_editor(monkeypatch):
     result = solver.solve_task()
 
     assert result.success is True
-    # HTTP transport entry, not stdio command/args.
-    server_cfg = captured["mcp_config"]["mcpServers"]["godot-ai"]
-    assert server_cfg["transport"] == "http"
-    assert server_cfg["url"] == solver.mcp_spec.http_url
-    assert "command" not in server_cfg
     # The editor was started and torn down exactly once.
     assert len(_FakeEditorSession.instances) == 1
     sess = _FakeEditorSession.instances[0]
     assert sess.entered and sess.exited
-    assert sess.kwargs["http_url"] == solver.mcp_spec.http_url
+    # HTTP transport entry wired to the session's per-task URL, not stdio.
+    server_cfg = captured["mcp_config"]["mcpServers"]["godot-ai"]
+    assert server_cfg["transport"] == "http"
+    assert server_cfg["url"] == sess.http_url
+    assert "command" not in server_cfg
 
 
 def test_godot_ai_editor_torn_down_on_failure(monkeypatch):

@@ -119,19 +119,15 @@ class GodotBenchmarkRunner:
         self.workers = max(1, int(workers))
 
         # Only MCP servers that grab a host-global resource force sequential
-        # runs: the screenshot baseline captures a whole monitor; godot-ai binds
-        # fixed host ports via its per-task editor. Headless stdio servers like
-        # godot-mcp run as independent per-task processes, so parallelism is safe.
+        # runs: the screenshot baseline captures a whole monitor. Headless stdio
+        # servers (godot-mcp) and godot-ai (per-task editor on its own free ports
+        # + isolated editor state) run as independent processes, so parallelism
+        # is safe for them.
         if self.use_mcp and self.mcp_spec.requires_single_worker and self.workers > 1:
-            reason = (
-                "captures a full monitor"
-                if self.mcp_spec.exclusive_display
-                else "binds fixed host ports via a per-task Godot editor"
-            )
             print(
-                f"⚠️  MCP server '{self.mcp_server}' {reason} — "
+                f"⚠️  MCP server '{self.mcp_server}' captures a full monitor — "
                 f"forcing workers=1 (was {self.workers}); parallel runs would "
-                "collide on the shared resource."
+                "collide on the shared display."
             )
             self.workers = 1
 
@@ -1365,6 +1361,19 @@ script = ExtResource("test_script")
                 else f"  ⚠️  Could not pre-fetch '{self.mcp_server}'; "
                 "workers will fetch it on first use."
             )
+        # Editor-plugin servers (godot-ai) also need the addon cloned+patched;
+        # do it once here so parallel workers don't race to clone the same cache.
+        if self.use_mcp and self.mcp_spec.needs_godot_editor:
+            try:
+                from gamedevbench.src.godot_ai_editor import ensure_addon
+
+                ensure_addon()
+                print(f"  MCP server '{self.mcp_server}' addon cached.")
+            except Exception as e:
+                print(
+                    f"  ⚠️  Could not pre-fetch '{self.mcp_server}' addon ({e}); "
+                    "workers will fetch it on first use."
+                )
 
         if self.workers > 1 and len(tasks) > 1:
             print(f"Running {len(tasks)} tasks with {self.workers} parallel workers...")

@@ -84,13 +84,14 @@ class MCPServerSpec:
 
     @property
     def requires_single_worker(self) -> bool:
-        """True if the server uses a host-global resource parallel runs collide over.
+        """True if the server grabs a host-global resource parallel runs collide over.
 
-        Either a whole monitor (``exclusive_display``) or fixed host ports owned
-        by a per-task Godot editor (``needs_godot_editor``). The runner forces
-        ``--workers 1`` in either case.
+        Currently only a whole monitor (``exclusive_display``, the screenshot
+        baseline). ``needs_godot_editor`` servers are NOT single-worker: each
+        per-task editor gets its own free ports and isolated editor state (see
+        ``godot_ai_editor``), so they run in parallel.
         """
-        return self.exclusive_display or self.needs_godot_editor
+        return self.exclusive_display
 
     def env(self) -> Dict[str, str]:
         """Resolve extra environment variables for the server process."""
@@ -300,10 +301,11 @@ GODOT_AI = MCPServerSpec(
     transport="http",
     http_url=GODOT_AI_HTTP_URL,
     # A live Godot editor with the plugin must run per task (see godot_ai_editor).
+    # Each task's editor gets its own free ports + isolated editor state, so this
+    # runs in parallel (NOT single-worker, unlike the screenshot baseline).
     needs_godot_editor=True,
-    # Fixed host ports (EditorSettings-only, no env override) -> single worker.
-    # `requires_single_worker` is already True via needs_godot_editor.
     # First `uvx` launch downloads the package; prime it once before dispatch.
+    # (The runner also clones the editor addon once up front for editor servers.)
     prefetch=True,
 )
 

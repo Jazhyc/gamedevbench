@@ -7,12 +7,18 @@ work, a Godot editor with the plugin enabled must be running and connected to
 that server. This module owns that lifecycle for one task:
 
 1. Cache the pinned addon (``ensure_addon``) — cloned once at warm-up, reused.
+   The cached addon is patched so its server ports come from environment
+   variables (``_patch_addon_env_ports``), which is what lets editors run in
+   parallel: stock godot-ai reads ports only from global EditorSettings.
 2. Install it into the task sandbox and enable the plugin (``install_addon``).
-3. Launch the editor under ``xvfb`` (``GodotAiEditorSession``); the plugin
-   spawns the server.
+3. Launch the editor under ``xvfb`` (``GodotAiEditorSession``) on a **per-session
+   free port pair**, with Godot's config/data dirs isolated per session so
+   concurrent editors don't fight over EditorSettings or the server pid-file;
+   the plugin spawns the server on those ports.
 4. Poll ``editor_state`` until the editor reports ``readiness == "ready"``.
 5. On exit, terminate the editor's whole process tree (which also reaps the
-   server — it has an owner-pid orphan reaper, but we don't rely on it).
+   server — it has an owner-pid orphan reaper, but we don't rely on it), strip
+   the plugin footprint, and remove the per-session dirs.
 
 The heavy steps are kept behind small, pure helpers so they can be unit-tested
 without Godot, a display, or the network.
@@ -22,11 +28,13 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from gamedevbench.src.mcp_registry import GODOT_AI_VERSION
@@ -39,6 +47,70 @@ _ADDON_SUBPATH = "plugin/addons/godot_ai"
 
 #: Plugin entry written into ``project.godot`` to enable the addon.
 _PLUGIN_RES_PATH = "res://addons/godot_ai/plugin.cfg"
+
+#: Env vars the patched addon reads its server ports from (see
+#: ``_patch_addon_env_ports``). Names are also set on the editor launch env.
+ENV_HTTP_PORT = "GODOT_AI_HTTP_PORT"
+ENV_WS_PORT = "GODOT_AI_WS_PORT"
+
+# The stock addon resolves ports only from global EditorSettings, so every
+# editor would spawn its server on 8000/9500 and collide. We patch the two port
+# accessors to prefer an env override, giving each editor its own ports. The
+# searched text is the exact (tab-indented) body upstream ships at v2.7.5.
+_PORT_PATCHES = (
+    (
+        "static func http_port() -> int:\n"
+        "\treturn _read_port_setting(McpSettings.SETTING_HTTP_PORT, DEFAULT_HTTP_PORT)",
+        "static func http_port() -> int:\n"
+        f'\tvar _e := OS.get_environment("{ENV_HTTP_PORT}")\n'
+        "\tif _e.is_valid_int():\n"
+        "\t\treturn _e.to_int()\n"
+        "\treturn _read_port_setting(McpSettings.SETTING_HTTP_PORT, DEFAULT_HTTP_PORT)",
+    ),
+    (
+        "static func ws_port() -> int:\n"
+        "\treturn _read_port_setting(SETTING_WS_PORT, DEFAULT_WS_PORT)",
+        "static func ws_port() -> int:\n"
+        f'\tvar _e := OS.get_environment("{ENV_WS_PORT}")\n'
+        "\tif _e.is_valid_int():\n"
+        "\t\treturn _e.to_int()\n"
+        "\treturn _read_port_setting(SETTING_WS_PORT, DEFAULT_WS_PORT)",
+    ),
+)
+
+
+def _patch_addon_env_ports(addon_dir: Path) -> None:
+    """Patch the addon so its server ports come from env vars (idempotent).
+
+    Raises ``RuntimeError`` if the upstream port accessors aren't found verbatim
+    — that means the addon version drifted and the patch (and thus parallel
+    safety) can't be trusted, so we fail loudly rather than silently fall back
+    to colliding default ports.
+    """
+    cc = addon_dir / "client_configurator.gd"
+    text = cc.read_text()
+    if ENV_HTTP_PORT in text and ENV_WS_PORT in text:
+        return  # already patched
+    for old, new in _PORT_PATCHES:
+        if old not in text:
+            raise RuntimeError(
+                "godot-ai addon port accessor not found verbatim in "
+                f"{cc} — the pinned version may have drifted; refusing to run "
+                "parallel without env-port support."
+            )
+        text = text.replace(old, new)
+    cc.write_text(text)
+
+
+def free_port() -> int:
+    """Return a currently-free TCP port on loopback (bind-to-0 then release).
+
+    There is a small TOCTOU window before the editor binds it; the session's
+    readiness check + retry covers the rare collision between parallel workers.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 def addon_tag(version: str = GODOT_AI_VERSION) -> str:
@@ -72,6 +144,7 @@ def ensure_addon(
     cache = addon_cache_dir(version)
     addon = cache / "addon" / "godot_ai"
     if (addon / "plugin.cfg").exists():
+        _patch_addon_env_ports(addon)  # idempotent; covers a stale unpatched cache
         return addon
 
     checkout = cache / "repo"
@@ -102,6 +175,7 @@ def ensure_addon(
     addon.parent.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(addon, ignore_errors=True)
     shutil.copytree(src, addon)
+    _patch_addon_env_ports(addon)
     return addon
 
 
@@ -363,56 +437,108 @@ def _terminate_tree(pid: int, term_grace: float = 5.0) -> None:
             pass
 
 
+def _reap_servers(isolated_dir: Path) -> None:
+    """Kill any godot-ai server whose pid-file lives under this session's dirs.
+
+    The editor plugin spawns its Python server **detached** (its own session),
+    so the editor's ``killpg`` doesn't reach it — it would otherwise linger until
+    its owner-pid watchdog notices the editor died. The server writes
+    ``user://godot_ai_server.pid`` under our isolated ``XDG_DATA_HOME``, so we
+    read those pid-files and terminate the process group explicitly.
+    """
+    for pidfile in isolated_dir.glob("data/**/godot_ai_server.pid"):
+        try:
+            pid = int(pidfile.read_text().strip())
+        except Exception:
+            continue
+        _terminate_tree(pid)
+
+
 @dataclass
 class GodotAiEditorSession:
     """Context manager that runs a godot-ai editor for one task.
 
-    Installs the addon into ``project_dir``, launches the editor, and waits for
-    it to report ready. ``__enter__`` raises ``RuntimeError`` if the editor never
-    becomes ready (so the solver can fail fast rather than connect to a dead
-    server). ``__exit__`` always tears the editor process tree down.
+    Installs the addon into ``project_dir``, launches the editor on a
+    **per-session free port pair** with Godot's config/data dirs isolated to a
+    throwaway location, and waits for it to report ready. Because each session
+    picks its own ports and editor state, multiple sessions can run concurrently
+    (one per benchmark worker) without colliding.
+
+    After entering, :attr:`http_url` is the MCP endpoint the agent should use.
+    ``__enter__`` retries on a fresh port pair if the editor doesn't come up
+    (covers a rare free-port race) and raises ``RuntimeError`` if every attempt
+    fails. ``__exit__`` always tears the editor process tree down, strips the
+    plugin footprint, and removes the per-session dirs.
     """
 
     project_dir: Path
     godot_path: str
-    http_url: str
     addon_src: Path
     extra_env: Dict[str, str] = field(default_factory=dict)
     ready_timeout: float = 90.0
+    max_attempts: int = 2
     debug: bool = False
+    http_url: str = field(default="", init=False)
     _proc: Optional[subprocess.Popen] = field(default=None, init=False, repr=False)
+    _isolated_dirs: List[Path] = field(default_factory=list, init=False, repr=False)
 
     def __enter__(self) -> "GodotAiEditorSession":
         install_addon(self.project_dir, self.addon_src)
-
         have_xvfb = shutil.which("xvfb-run") is not None
-        cmd, launch_env = build_editor_command(
-            self.godot_path, self.project_dir,
-            have_xvfb=have_xvfb, allow_headless=True,
-        )
-        env = {**os.environ, **self.extra_env, **launch_env}
-        if self.debug:
-            print(f"      [godot-ai] launching editor: {' '.join(cmd)}")
-        self._proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL if not self.debug else None,
-            stderr=subprocess.DEVNULL if not self.debug else None,
-            env=env,
-            cwd=str(self.project_dir),
-            # Own session/process group so teardown can killpg the whole thing,
-            # including the Xvfb that xvfb-run would otherwise orphan.
-            start_new_session=True,
-        )
 
-        if not wait_until_ready(self.http_url, timeout=self.ready_timeout):
-            self._teardown()
-            raise RuntimeError(
-                f"godot-ai editor never became ready within {self.ready_timeout}s "
-                f"at {self.http_url}"
+        last_reason = ""
+        for attempt in range(1, self.max_attempts + 1):
+            http, ws = free_port(), free_port()
+            url = f"http://127.0.0.1:{http}/mcp"
+            isolated = Path(tempfile.mkdtemp(prefix="gamedevbench_gai_"))
+            (isolated / "config").mkdir()
+            (isolated / "data").mkdir()
+
+            cmd, launch_env = build_editor_command(
+                self.godot_path, self.project_dir,
+                have_xvfb=have_xvfb, allow_headless=True,
             )
-        if self.debug:
-            print(f"      [godot-ai] editor ready at {self.http_url}")
-        return self
+            env = {
+                **os.environ, **self.extra_env, **launch_env,
+                ENV_HTTP_PORT: str(http), ENV_WS_PORT: str(ws),
+                # Isolate EditorSettings + the server pid-file per session so
+                # concurrent editors don't fight. Cache dir is left shared so the
+                # uvx package cache (and Godot's caches) stay warm.
+                "XDG_CONFIG_HOME": str(isolated / "config"),
+                "XDG_DATA_HOME": str(isolated / "data"),
+            }
+            if self.debug:
+                print(f"      [godot-ai] attempt {attempt}: {' '.join(cmd)} "
+                      f"(http={http} ws={ws})")
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL if not self.debug else None,
+                stderr=subprocess.DEVNULL if not self.debug else None,
+                env=env,
+                cwd=str(self.project_dir),
+                # Own session/process group so teardown can killpg the whole
+                # thing, including the Xvfb that xvfb-run would otherwise orphan.
+                start_new_session=True,
+            )
+
+            if wait_until_ready(url, timeout=self.ready_timeout):
+                self._proc = proc
+                self.http_url = url
+                self._isolated_dirs.append(isolated)
+                if self.debug:
+                    print(f"      [godot-ai] editor ready at {url}")
+                return self
+
+            # This attempt failed: reap it and its dirs, then try a fresh port.
+            _terminate_tree(proc.pid)
+            _reap_servers(isolated)
+            shutil.rmtree(isolated, ignore_errors=True)
+            last_reason = f"not ready on port {http} within {self.ready_timeout}s"
+
+        raise RuntimeError(
+            f"godot-ai editor never became ready after {self.max_attempts} "
+            f"attempt(s): {last_reason}"
+        )
 
     def __exit__(self, *exc) -> None:
         self._teardown()
@@ -421,9 +547,15 @@ class GodotAiEditorSession:
         if self._proc is not None and self._proc.poll() is None:
             _terminate_tree(self._proc.pid)
         self._proc = None
+        # Kill the detached server(s) explicitly (the editor's killpg misses them).
+        for d in self._isolated_dirs:
+            _reap_servers(d)
         # With the editor dead (no longer rewriting project.godot), strip the
         # plugin footprint so the agent's work is validated in a clean project.
         try:
             cleanup_project_footprint(self.project_dir)
         except Exception:
             pass
+        for d in self._isolated_dirs:
+            shutil.rmtree(d, ignore_errors=True)
+        self._isolated_dirs = []

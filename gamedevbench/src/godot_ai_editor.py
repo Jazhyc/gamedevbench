@@ -510,6 +510,14 @@ class GodotAiEditorSession:
                 # uvx package cache (and Godot's caches) stay warm.
                 "XDG_CONFIG_HOME": str(isolated / "config"),
                 "XDG_DATA_HOME": str(isolated / "data"),
+                # Force software (llvmpipe) GL for the editor AND the games it
+                # runs via project_run. On WSL2, hardware GL goes through GPU
+                # passthrough (/dev/dxg -> d3d12/dxgkrnl), which is unstable and
+                # crashed the whole WSL VM repeatedly under this rendering
+                # workload — independent of worker count or memory. Software
+                # rendering trades a little speed for not taking down the VM.
+                "LIBGL_ALWAYS_SOFTWARE": "1",
+                "GALLIUM_DRIVER": "llvmpipe",
             }
             if self.debug:
                 print(f"      [godot-ai] attempt {attempt}: {' '.join(cmd)} "

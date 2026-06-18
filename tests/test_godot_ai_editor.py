@@ -198,6 +198,23 @@ def test_build_editor_command_prefers_xvfb():
     assert env == {}
 
 
+def test_build_editor_command_pins_display_to_xvfb():
+    # With a display number, xvfb is pinned (-n) AND DISPLAY is exported so the
+    # plugin's reload-spawned editors inherit it instead of escaping to :0.
+    cmd, env = gae.build_editor_command(
+        "/bin/godot", Path("/proj"), have_xvfb=True, allow_headless=True, display=347,
+    )
+    assert cmd[:4] == ["xvfb-run", "-n", "347", "-a"]
+    assert env == {"DISPLAY": ":347"}
+
+
+def test_free_display_avoids_in_use(monkeypatch):
+    monkeypatch.setattr(gae.os, "listdir", lambda _p: ["X200", "X201", "X5"])
+    for _ in range(20):
+        n = gae.free_display(start=200, end=202)
+        assert n not in (200, 201)  # 202 is the only free one in range
+
+
 def test_build_editor_command_headless_fallback():
     cmd, env = gae.build_editor_command(
         "/bin/godot", Path("/proj"), have_xvfb=False, allow_headless=True,

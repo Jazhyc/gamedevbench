@@ -371,21 +371,56 @@ def wait_until_ready(
     return False
 
 
+def free_display(start: int = 200, end: int = 899) -> int:
+    """Pick an X display number not currently in use under ``/tmp/.X11-unix``.
+
+    Used to pin the editor's xvfb display so we can also export ``DISPLAY`` into
+    the env (see ``build_editor_command``); a small race is covered by xvfb-run's
+    ``-a`` fallback + the session's readiness retry.
+    """
+    import random
+
+    used: set[int] = set()
+    try:
+        for name in os.listdir("/tmp/.X11-unix"):
+            if name.startswith("X") and name[1:].isdigit():
+                used.add(int(name[1:]))
+    except Exception:
+        pass
+    for _ in range(50):
+        n = random.randint(start, end)
+        if n not in used:
+            return n
+    return random.randint(start, end)
+
+
 def build_editor_command(
     godot_path: str,
     project_dir: Path,
     *,
     have_xvfb: bool,
     allow_headless: bool,
+    display: Optional[int] = None,
 ) -> Tuple[list[str], Dict[str, str]]:
     """Build the editor launch argv and any extra env it needs.
 
     Prefers ``xvfb-run`` (a throwaway virtual display) since the plugin disables
     itself under a true ``--headless`` editor unless ``GODOT_AI_ALLOW_HEADLESS``
     is set. Falls back to ``--headless`` + that opt-in when xvfb is unavailable.
+
+    When ``display`` is given, pin xvfb to that number (``-n``) AND return
+    ``DISPLAY=:N`` so it lands in the process env — that way child processes the
+    plugin spawns for its editor reload (which bypass ``xvfb-run``) inherit the
+    xvfb display instead of falling back to ``:0`` (WSLg) and popping windows
+    onto the host desktop.
     """
     base = [godot_path, "--editor", "--path", str(project_dir)]
     if have_xvfb:
+        if display is not None:
+            return (
+                ["xvfb-run", "-n", str(display), "-a", *base],
+                {"DISPLAY": f":{display}"},
+            )
         return ["xvfb-run", "-a", *base], {}
     if allow_headless:
         return [*base, "--headless"], {"GODOT_AI_ALLOW_HEADLESS": "1"}
@@ -501,6 +536,7 @@ class GodotAiEditorSession:
             cmd, launch_env = build_editor_command(
                 self.godot_path, self.project_dir,
                 have_xvfb=have_xvfb, allow_headless=True,
+                display=free_display() if have_xvfb else None,
             )
             env = {
                 **os.environ, **self.extra_env, **launch_env,

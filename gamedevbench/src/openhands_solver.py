@@ -71,6 +71,7 @@ class OpenHandsSolver(BaseSolver):
     # Solver capabilities (required by BaseSolver)
     SUPPORTS_MCP = True
     SUPPORTS_SYSTEM_PROMPT = True  # Via custom_instructions
+    SUPPORTS_VERIFICATION_NUDGE = True  # honors --encourage-verification
 
     # Model name mapping for litellm format
     MODEL_MAPPING = {
@@ -96,6 +97,7 @@ class OpenHandsSolver(BaseSolver):
         openrouter_site_url: Optional[str] = None,
         openrouter_app_name: Optional[str] = None,
         mcp_server: str = DEFAULT_MCP_SERVER,
+        encourage_verification: bool = False,
     ):
         """
         Initialize the OpenHands solver.
@@ -107,10 +109,17 @@ class OpenHandsSolver(BaseSolver):
             model: Model to use (default: openai/gpt-4o, supports vision)
             use_runtime_video: Whether to append Godot runtime video instructions to prompts
             mcp_server: Name of the MCP server to wire in when use_mcp is set
+            encourage_verification: Whether to append the light "construct your own
+                tests to verify intended behaviour" nudge to the task prompt
         """
-        # Call parent constructor (handles MCP validation)
+        # Call parent constructor (handles MCP + verification-nudge validation)
         super().__init__(
-            timeout_seconds, debug, use_mcp, use_runtime_video, mcp_server=mcp_server
+            timeout_seconds,
+            debug,
+            use_mcp,
+            use_runtime_video,
+            mcp_server=mcp_server,
+            encourage_verification=encourage_verification,
         )
 
         # OpenHands-specific parameters

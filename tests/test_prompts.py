@@ -43,6 +43,31 @@ def test_mcp_guidance_ignored_when_mcp_disabled():
     assert "should not appear" not in out
 
 
+def test_verification_nudge_appended_only_when_requested():
+    with_nudge = prompts.create_task_prompt(
+        {"instruction": "x"}, encourage_verification=True
+    )
+    without = prompts.create_task_prompt({"instruction": "x"})
+    # Light nudge: tells the agent to verify behaviour and run a headless check,
+    # but ships no script template / introspection idioms.
+    assert "verify" in with_nudge.lower()
+    assert "godot --headless --script" in with_nudge
+    assert "verify" not in without.lower()
+
+
+def test_verification_nudge_is_independent_of_mcp_and_video():
+    # Orthogonal flags can be combined; each block appears exactly once.
+    out = prompts.create_task_prompt(
+        {"instruction": "x"},
+        use_runtime_video=True,
+        use_mcp=True,
+        encourage_verification=True,
+    )
+    assert "--write-movie" in out
+    assert "godot-screenshot" in out
+    assert out.count("godot --headless --script") == 1
+
+
 def test_invalid_config_returns_empty_string():
     assert prompts.create_task_prompt({}) == ""
     assert prompts.create_task_prompt(None) == ""

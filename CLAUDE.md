@@ -118,8 +118,25 @@ Godot must be on `PATH` or `GODOT_EXEC_PATH`. API keys live in `.env` (template:
 
 - `gamedevbench/src/benchmark_runner.py` — CLI + orchestration. Global flags
   (`--agent`, `--model`, `--enable-mcp`, `--mcp-server`, `--use-runtime-video`,
-  `--skip-display`, `--run-name`, `--resume[-from]`, `--workers`) + subcommands `list` / `open` /
+  `--encourage-verification`, `--skip-display`, `--run-name`, `--resume[-from]`,
+  `--workers`) + subcommands `list` / `open` /
   `validate` / `run`. `--gt` operates on ground-truth tasks.
+  - `--encourage-verification` is a **prompt-only experiment condition**
+    (orthogonal to MCP — combine with baseline or any server, isolate with
+    `--run-name`). It appends a *light, open-ended* nudge
+    (`VERIFICATION_NUDGE_GUIDANCE` in `utils/prompts.py`) telling the agent to
+    turn the spec into observable behaviours, write a throwaway GDScript test,
+    run it headlessly, and fix the implementation until it passes — but
+    deliberately ships **no script template or introspection idioms**, so a
+    measured effect is attributable to the verification behaviour rather than to
+    teaching the validator's technique. Motivation: baseline trajectories show
+    agents almost never self-verify (~84% only compile-check; the real
+    `test.tscn` grader is withheld from the sandbox by `should_skip_file`), and
+    ~95% of failures are runnable-but-wrong code. Gated to solvers with
+    `SUPPORTS_VERIFICATION_NUDGE` (**OpenHands only** — DeepSeek's path);
+    requesting it for any other agent fails fast. Example: `--agent openhands
+    --model deepseek-v4-pro --encourage-verification --run-name
+    deepseek-verify`.
   - `--workers N` (default 8) runs a `run --task-list` over **N tasks
     concurrently, each in its own process** — required because the agent solve
     step does a process-global `os.chdir` into its sandbox, so threads can't

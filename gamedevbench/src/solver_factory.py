@@ -45,6 +45,7 @@ class SolverFactory:
         timeout_seconds: int = 600,
         use_runtime_video: bool = False,
         mcp_server: str = DEFAULT_MCP_SERVER,
+        encourage_verification: bool = False,
     ) -> BaseSolver:
         """
         Create a solver instance based on agent type.
@@ -59,12 +60,17 @@ class SolverFactory:
             mcp_server: Name of the MCP server to use when use_mcp is set. Only
                 the OpenHands solver currently honors a non-default selection;
                 requesting a non-default server for any other agent raises.
+            encourage_verification: Append the light "construct your own tests"
+                nudge. Only solvers with SUPPORTS_VERIFICATION_NUDGE (OpenHands)
+                accept it; requesting it for any other agent raises.
 
         Returns:
             Configured solver instance
 
         Raises:
-            ValueError: If agent is unknown or if MCP is requested but not supported
+            ValueError: If agent is unknown, if MCP is requested but not
+                supported, or if encourage_verification is requested but not
+                supported
             RuntimeError: If OpenHands is requested but Python version < 3.12
         """
         # Check if agent exists in registry
@@ -88,6 +94,17 @@ class SolverFactory:
                 f"Agent '{agent}' does not support MCP. "
                 f"Set use_mcp=False or use a solver that supports MCP. "
                 f"Solvers with MCP support: {cls.get_mcp_capable_solvers()}"
+            )
+
+        # Validate verification-nudge support (mirrors the MCP guard). Gated to
+        # SUPPORTS_VERIFICATION_NUDGE solvers because the nudge is wired in via
+        # the solver constructor (only OpenHands forwards it today).
+        if encourage_verification and not getattr(
+            solver_class, "SUPPORTS_VERIFICATION_NUDGE", False
+        ):
+            raise ValueError(
+                f"Agent '{agent}' does not support --encourage-verification. "
+                f"Use --agent openhands or drop the flag."
             )
 
         # Validate the server name early (fails fast on a typo) and guard the
@@ -127,6 +144,13 @@ class SolverFactory:
         # selections for them.
         if agent == "openhands":
             kwargs["mcp_server"] = mcp_server
+
+        # Pass the verification nudge to any solver that accepts it (gated by the
+        # capability flag, like use_mcp above). Solvers without support already
+        # raised above, so this never reaches a solver whose __init__ lacks the
+        # kwarg.
+        if getattr(solver_class, "SUPPORTS_VERIFICATION_NUDGE", False):
+            kwargs["encourage_verification"] = encourage_verification
 
         # Create and return solver instance
         # The BaseSolver.__init__ will perform final validation

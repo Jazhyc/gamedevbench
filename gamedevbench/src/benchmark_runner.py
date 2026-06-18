@@ -64,6 +64,7 @@ class GodotBenchmarkRunner:
         run_name: Optional[str] = None,
         workers: int = 1,
         mcp_server: str = DEFAULT_MCP_SERVER,
+        encourage_verification: bool = False,
     ):
         """
         Initialize the benchmark runner.
@@ -79,6 +80,8 @@ class GodotBenchmarkRunner:
             skip_display: Skip tasks that require display (requires_display=true in task_config.json)
             use_runtime_video: Enable runtime video mode (appends Godot runtime instructions to prompts)
             run_name: Optional name used to isolate result files for this run
+            encourage_verification: Append the light "construct your own tests to
+                verify intended behaviour" nudge to task prompts (OpenHands only)
             workers: Number of tasks to run concurrently. Each task runs in its
                 own process (the agent solve step relies on a process-global
                 os.chdir into the sandbox, so processes — not threads — are
@@ -116,6 +119,7 @@ class GodotBenchmarkRunner:
         self.resume_from = resume_from
         self.skip_display = skip_display
         self.use_runtime_video = use_runtime_video
+        self.encourage_verification = encourage_verification
         self.workers = max(1, int(workers))
 
         # Only MCP servers that grab a host-global resource force sequential
@@ -515,6 +519,7 @@ script = ExtResource("test_script")
                     "use_mcp": self.use_mcp,
                     "mcp_server": self.mcp_server,
                     "use_runtime_video": self.use_runtime_video,
+                    "encourage_verification": self.encourage_verification,
                     "skip_display": self.skip_display,
                     "debug": self.debug,
                 }
@@ -537,6 +542,7 @@ script = ExtResource("test_script")
             "use_mcp": self.use_mcp,
             "mcp_server": self.mcp_server,
             "use_runtime_video": self.use_runtime_video,
+            "encourage_verification": self.encourage_verification,
             "skip_display": self.skip_display,
             "debug": self.debug,
         }
@@ -872,6 +878,7 @@ script = ExtResource("test_script")
                 "use_mcp": self.use_mcp,
                 "mcp_server": self.mcp_server,
                 "use_runtime_video": self.use_runtime_video,
+                "encourage_verification": self.encourage_verification,
                 "skip_display": self.skip_display,
                 "debug": self.debug,
             }
@@ -929,6 +936,7 @@ script = ExtResource("test_script")
                     timeout_seconds=TIMEOUT,
                     use_runtime_video=self.use_runtime_video,
                     mcp_server=self.mcp_server,
+                    encourage_verification=self.encourage_verification,
                 )
                 solver_result = solver.solve_task()
 
@@ -1024,6 +1032,7 @@ script = ExtResource("test_script")
                 "use_mcp": self.use_mcp,
                 "mcp_server": self.mcp_server,
                 "use_runtime_video": self.use_runtime_video,
+                "encourage_verification": self.encourage_verification,
                 "skip_display": self.skip_display,
                 "debug": self.debug,
                 "solver_success": solver_result.success if solver_result else False,
@@ -1149,6 +1158,7 @@ script = ExtResource("test_script")
             "use_mcp": self.use_mcp,
             "mcp_server": self.mcp_server,
             "use_runtime_video": self.use_runtime_video,
+            "encourage_verification": self.encourage_verification,
             "skip_display": self.skip_display,
             "debug": self.debug,
         }
@@ -1502,6 +1512,7 @@ script = ExtResource("test_script")
                 "use_mcp": self.use_mcp,
                 "mcp_server": self.mcp_server,
                 "use_runtime_video": self.use_runtime_video,
+                "encourage_verification": self.encourage_verification,
                 "skip_display": self.skip_display,
                 "debug": self.debug,
                 "run_name": self.run_name,
@@ -1544,6 +1555,7 @@ script = ExtResource("test_script")
             "use_mcp",
             "mcp_server",
             "use_runtime_video",
+            "encourage_verification",
             "skip_display",
             "debug",
             "solver_success",
@@ -1574,6 +1586,9 @@ script = ExtResource("test_script")
                     "use_mcp": result.get("use_mcp", False),
                     "mcp_server": result.get("mcp_server", DEFAULT_MCP_SERVER),
                     "use_runtime_video": result.get("use_runtime_video", False),
+                    "encourage_verification": result.get(
+                        "encourage_verification", False
+                    ),
                     "skip_display": result.get("skip_display", False),
                     "debug": result.get("debug", False),
                     "solver_success": result.get("solver_success", False),
@@ -1640,6 +1655,12 @@ def main():
         action="store_true",
     )
     parser.add_argument(
+        "--encourage-verification",
+        help="Append a light nudge asking the agent to write & run its own "
+        "behavioral tests against the spec before finishing (OpenHands only).",
+        action="store_true",
+    )
+    parser.add_argument(
         "--run-name",
         help="Optional name used to isolate outputs under results/<run_name>/ and tasks/test_result/<run_name>/",
         type=str,
@@ -1697,6 +1718,7 @@ def main():
         run_name=args.run_name,
         workers=args.workers,
         mcp_server=args.mcp_server,
+        encourage_verification=args.encourage_verification,
     )
 
     if args.command == "list":

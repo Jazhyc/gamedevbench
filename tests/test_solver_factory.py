@@ -36,6 +36,10 @@ class _DummyMcpSolver(_DummySolver):
     SUPPORTS_MCP = True
 
 
+class _DummyVerifySolver(_DummySolver):
+    SUPPORTS_VERIFICATION_NUDGE = True
+
+
 def test_core_agents_registered():
     assert CORE_AGENTS <= set(SolverFactory.get_available_agents())
 
@@ -111,6 +115,24 @@ def test_unknown_mcp_server_rejected(restore_registry):
         SolverFactory.create_solver(
             "dummy-mcp", use_mcp=True, mcp_server="bogus"
         )
+
+
+def test_verification_nudge_on_unsupported_raises(restore_registry):
+    SolverFactory.register_solver("dummy", _DummySolver)
+    with pytest.raises(ValueError, match="does not support --encourage-verification"):
+        SolverFactory.create_solver("dummy", encourage_verification=True)
+
+
+def test_verification_nudge_on_supported_sets_flag(restore_registry):
+    SolverFactory.register_solver("dummy-verify", _DummyVerifySolver)
+    solver = SolverFactory.create_solver("dummy-verify", encourage_verification=True)
+    assert solver.encourage_verification is True
+
+
+def test_verification_nudge_defaults_off(restore_registry):
+    SolverFactory.register_solver("dummy-verify", _DummyVerifySolver)
+    solver = SolverFactory.create_solver("dummy-verify")
+    assert solver.encourage_verification is False
 
 
 def test_non_default_mcp_server_requires_openhands(restore_registry):

@@ -104,30 +104,7 @@ uv run python gamedevbench/src/benchmark_runner.py \
 
 MCP screenshot functionality (`--enable-mcp`) is **cross-platform** (Windows, macOS, Linux) via [`mss`](https://pypi.org/project/mss/). Set `GODOT_SCREENSHOT_DISPLAY` to the 1-indexed monitor to capture (`1` = primary); out-of-range values fall back to the primary monitor.
 
-## Results
-
-The official ICML 2026 camera-ready results are included in [`results/`](results/) — one JSON per (agent, model, feedback) configuration with per-task pass/fail status, token usage, costs, and durations, plus a [`leaderboard.csv`](results/leaderboard.csv) summary. New benchmark runs are also saved to `results/`.
-
-| Rank | Model | Harness | Feedback | pass@1 (%) |
-|-----:|-------|---------|----------|-----------:|
-| 1 | gemini-3-pro-preview | Gemini CLI | Screenshot + Video | **53.8** |
-| 2 | gpt-5.4 | Codex | Screenshot + Video | 52.0 |
-| 3 | gemini-3-flash-preview | Gemini CLI | Video | 46.9 |
-| 4 | gpt-5.4-mini | Codex | Video | 43.2 |
-| 5 | gpt-5.4-mini | OpenHands | Baseline | 38.4 |
-| 6 | claude-sonnet-4-5 | Claude Code | Screenshot + Video | 34.8 |
-| 7 | gemini-3-flash-preview | OpenHands | Screenshot + Video | 31.8 |
-| 8 | deepseek-v4-pro | OpenHands | Baseline | 29.1 |
-| 9 | kimi-k2.5 | OpenHands | Screenshot + Video | 20.7 |
-| 10 | claude-haiku-4-5 | Claude Code | Video | 18.6 |
-| 11 | claude-haiku-4-5 | OpenHands | Screenshot + Video | 17.7 |
-| 12 | qwen3.5-397b | OpenHands | Baseline | 5.4 |
-
-*Best-performing multimodal feedback configuration per model + harness pair. Screenshot = editor screenshot MCP server; Video = runtime gameplay video instructions. See the [project page](https://waynechi.com/gamedevbench) for the full leaderboard.*
-
-### Godot-Specific Tooling
-
-A separate track measuring **Godot-targeted MCP servers against generic, non-Godot tooling**, holding the model and harness fixed and varying only the tooling. Each configuration is isolated with `--run-name` so its `results/` are directly comparable against the generic/no-MCP baseline.
+### Godot-Specific MCP Servers
 
 `--enable-mcp` turns MCP on and `--mcp-server NAME` picks which server:
 
@@ -154,6 +131,31 @@ uv run python gamedevbench/src/benchmark_runner.py \
   --run-name deepseek-godotmcp \
   run --task-list tasks.yaml
 ```
+
+## Results
+
+The official ICML 2026 camera-ready results are included in [`results/`](results/) — one JSON per (agent, model, feedback) configuration with per-task pass/fail status, token usage, costs, and durations, plus a [`leaderboard.csv`](results/leaderboard.csv) summary. New benchmark runs are also saved to `results/`.
+
+| Rank | Model | Harness | Feedback | pass@1 (%) |
+|-----:|-------|---------|----------|-----------:|
+| 1 | gemini-3-pro-preview | Gemini CLI | Screenshot + Video | **53.8** |
+| 2 | gpt-5.4 | Codex | Screenshot + Video | 52.0 |
+| 3 | gemini-3-flash-preview | Gemini CLI | Video | 46.9 |
+| 4 | gpt-5.4-mini | Codex | Video | 43.2 |
+| 5 | gpt-5.4-mini | OpenHands | Baseline | 38.4 |
+| 6 | claude-sonnet-4-5 | Claude Code | Screenshot + Video | 34.8 |
+| 7 | gemini-3-flash-preview | OpenHands | Screenshot + Video | 31.8 |
+| 8 | deepseek-v4-pro | OpenHands | Baseline | 29.1 |
+| 9 | kimi-k2.5 | OpenHands | Screenshot + Video | 20.7 |
+| 10 | claude-haiku-4-5 | Claude Code | Video | 18.6 |
+| 11 | claude-haiku-4-5 | OpenHands | Screenshot + Video | 17.7 |
+| 12 | qwen3.5-397b | OpenHands | Baseline | 5.4 |
+
+*Best-performing multimodal feedback configuration per model + harness pair. Screenshot = editor screenshot MCP server; Video = runtime gameplay video instructions. See the [project page](https://waynechi.com/gamedevbench) for the full leaderboard.*
+
+### Godot-Specific Tooling
+
+A separate track measuring **Godot-targeted MCP servers against generic, non-Godot tooling**, holding the model and harness fixed and varying only the tooling. Each configuration is isolated with `--run-name` so its `results/` are directly comparable against the generic/no-MCP baseline. See [Godot-specific MCP servers](#godot-specific-mcp-servers) under Usage for how to select and run these.
 
 | Model | Harness | Tooling | pass@1 (%) | Avg tokens/task | Avg cost/task (USD) |
 |-------|---------|---------|-----------:|----------------:|--------------------:|

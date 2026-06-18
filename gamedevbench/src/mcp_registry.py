@@ -11,7 +11,11 @@ The ``screenshot`` entry is the bundled baseline (see ``mcp_server.py``); the
 ``godot`` entry is the third-party Godot-targeted server
 ``@coding-solo/godot-mcp`` (https://github.com/Coding-Solo/godot-mcp); the
 ``godot-tugcan`` entry is a second Godot-targeted server
-``@tugcantopaloglu/godot-mcp`` (https://github.com/tugcantopaloglu/godot-mcp).
+``@tugcantopaloglu/godot-mcp`` (https://github.com/tugcantopaloglu/godot-mcp);
+the ``godot-ai`` entry is ``hi-godot/godot-ai`` (https://github.com/hi-godot/godot-ai),
+which is structurally different — an editor plugin that spawns a Python FastMCP
+server the agent reaches over **HTTP**, bridged to a live Godot editor (see
+``godot_ai_editor.py`` for the per-task editor lifecycle).
 Add new Godot-targeted servers here so each is selectable with ``--mcp-server``
 and directly comparable against the baseline.
 """
@@ -50,6 +54,19 @@ class MCPServerSpec:
             tasks run (see ``warm_up``). Set for servers whose first launch
             downloads something (e.g. ``npx`` fetching the package) so parallel
             workers reuse the cache instead of racing to download it.
+        transport: How the *agent* reaches the server. ``"stdio"`` (default)
+            means the solver launches ``command``/``args`` and speaks MCP over
+            the child's stdio. ``"http"`` means the server is reachable at
+            ``http_url`` and ``command``/``args`` are used only for ``warm_up``
+            (priming a package cache), not to launch the server the agent talks
+            to — something else owns that process (see ``needs_godot_editor``).
+        http_url: For ``transport="http"``, the MCP endpoint the agent connects
+            to (e.g. ``http://127.0.0.1:8000/mcp``). Empty for stdio servers.
+        needs_godot_editor: True if a Godot editor running this server's plugin
+            must be launched per task before the agent connects (the plugin
+            spawns the actual MCP server and bridges it to the live editor). The
+            solver drives that lifecycle via ``godot_ai_editor``. Such a server
+            binds fixed host ports, so it also forces a single worker.
     """
 
     name: str
@@ -61,6 +78,19 @@ class MCPServerSpec:
     env_factory: Optional[Callable[[], Dict[str, str]]] = field(default=None)
     exclusive_display: bool = False
     prefetch: bool = False
+    transport: str = "stdio"
+    http_url: str = ""
+    needs_godot_editor: bool = False
+
+    @property
+    def requires_single_worker(self) -> bool:
+        """True if the server uses a host-global resource parallel runs collide over.
+
+        Either a whole monitor (``exclusive_display``) or fixed host ports owned
+        by a per-task Godot editor (``needs_godot_editor``). The runner forces
+        ``--workers 1`` in either case.
+        """
+        return self.exclusive_display or self.needs_godot_editor
 
     def env(self) -> Dict[str, str]:
         """Resolve extra environment variables for the server process."""
@@ -122,6 +152,31 @@ def _godot_mcp_env() -> Dict[str, str]:
     return env
 
 
+#: Pinned hi-godot/godot-ai version — used for both the ``uvx`` server package
+#: and the editor addon checkout so the plugin and server stay in lockstep.
+GODOT_AI_VERSION = "2.7.5"
+
+#: Default loopback MCP endpoint the godot-ai editor plugin serves on. The
+#: server runs single-worker (host-global ports), so the default port is safe.
+GODOT_AI_HTTP_URL = "http://127.0.0.1:8000/mcp"
+
+
+def _godot_ai_env() -> Dict[str, str]:
+    """Environment for the godot-ai editor (which spawns the MCP server).
+
+    Disables the addon's phone-home telemetry (it POSTs tool events to a Cloud
+    Run endpoint by default) and passes the resolved Godot path through.
+    """
+    env: Dict[str, str] = {
+        "GODOT_AI_DISABLE_TELEMETRY": "1",
+        "DISABLE_TELEMETRY": "1",
+    }
+    godot_path = _resolve_godot_path()
+    if godot_path:
+        env["GODOT_PATH"] = godot_path
+    return env
+
+
 _SCREENSHOT_GUIDANCE = """
 
 You have access to a Godot MCP (Model Context Protocol) server that provides specialized tools for working with Godot projects.
@@ -174,6 +229,24 @@ When to use the MCP tools:
 Note: the runtime `game_*` tools require a `McpInteractionServer` autoload that the benchmark projects do not ship, so prefer the headless tools above (`read_scene`, `modify_scene_node`, `run_project`, `get_debug_output`) for inspection and verification.
 """
 
+_GODOT_AI_GUIDANCE = """
+
+You have access to a Godot MCP (Model Context Protocol) server (`hi-godot/godot-ai`) backed by a Godot editor plugin running against the current project. The tools operate on the *live editor*, so changes you make are applied directly to the open scene/project. The Godot project is the current directory (`./`).
+
+Available MCP Tools include (~41 tools, ~120 operations):
+- `editor_state`: report the current scene, Godot version, and readiness — call this first to confirm the editor is connected.
+- `scene_get_hierarchy`, `node_get_properties`, `scene_manage`, `node_manage`: inspect and edit the scene tree and node properties programmatically.
+- `script_manage`, `signal_manage`, `autoload_manage`: edit scripts, wire signals, and manage autoloads.
+- `game_manage` / run + debug tools: run the project and read back console/debug output to verify behavior.
+- `editor_screenshot`: capture the editor for visual inspection.
+- Plus tools for UI, materials, animation, particles, camera, environment, input, and resources.
+
+When to use the MCP tools:
+- Before starting work: call `editor_state` and `scene_get_hierarchy` to understand the live project state.
+- While building: prefer these scene/node/script tools over hand-editing `.tscn`/`.gd` files when practical — they mutate the editor directly.
+- To verify: run the project and read debug output to confirm the game behaves as expected.
+"""
+
 
 SCREENSHOT = MCPServerSpec(
     name="screenshot",
@@ -214,8 +287,29 @@ GODOT_TUGCAN = MCPServerSpec(
 )
 
 
+GODOT_AI = MCPServerSpec(
+    name="godot-ai",
+    server_id="godot-ai",
+    # command/args prime the uvx package cache during warm_up (the plugin itself
+    # spawns the real server); they are NOT how the agent reaches the server.
+    command="uvx",
+    args=("--from", f"godot-ai=={GODOT_AI_VERSION}", "godot-ai", "--version"),
+    prompt_guidance=_GODOT_AI_GUIDANCE,
+    env_factory=_godot_ai_env,
+    # The plugin spawns a Python FastMCP server the agent reaches over HTTP.
+    transport="http",
+    http_url=GODOT_AI_HTTP_URL,
+    # A live Godot editor with the plugin must run per task (see godot_ai_editor).
+    needs_godot_editor=True,
+    # Fixed host ports (EditorSettings-only, no env override) -> single worker.
+    # `requires_single_worker` is already True via needs_godot_editor.
+    # First `uvx` launch downloads the package; prime it once before dispatch.
+    prefetch=True,
+)
+
+
 _REGISTRY: Dict[str, MCPServerSpec] = {
-    spec.name: spec for spec in (SCREENSHOT, GODOT, GODOT_TUGCAN)
+    spec.name: spec for spec in (SCREENSHOT, GODOT, GODOT_TUGCAN, GODOT_AI)
 }
 
 #: Default server preserves the original ``--enable-mcp`` baseline behavior.

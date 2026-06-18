@@ -118,14 +118,20 @@ class GodotBenchmarkRunner:
         self.use_runtime_video = use_runtime_video
         self.workers = max(1, int(workers))
 
-        # Only MCP servers that grab a shared resource (the screenshot baseline
-        # captures a whole monitor) force sequential runs; headless servers like
+        # Only MCP servers that grab a host-global resource force sequential
+        # runs: the screenshot baseline captures a whole monitor; godot-ai binds
+        # fixed host ports via its per-task editor. Headless stdio servers like
         # godot-mcp run as independent per-task processes, so parallelism is safe.
-        if self.use_mcp and self.mcp_spec.exclusive_display and self.workers > 1:
+        if self.use_mcp and self.mcp_spec.requires_single_worker and self.workers > 1:
+            reason = (
+                "captures a full monitor"
+                if self.mcp_spec.exclusive_display
+                else "binds fixed host ports via a per-task Godot editor"
+            )
             print(
-                f"⚠️  MCP server '{self.mcp_server}' captures a full monitor — "
+                f"⚠️  MCP server '{self.mcp_server}' {reason} — "
                 f"forcing workers=1 (was {self.workers}); parallel runs would "
-                "collide on the shared display."
+                "collide on the shared resource."
             )
             self.workers = 1
 

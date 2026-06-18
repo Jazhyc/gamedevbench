@@ -50,6 +50,70 @@ def test_godot_tugcan_env_uses_godot_exec_path(monkeypatch):
     assert env["GODOT_PATH"] == "/opt/godot/godot"
 
 
+def test_godot_ai_server_registered():
+    assert "godot-ai" in mcp_servers.available_mcp_servers()
+
+
+def test_godot_ai_uses_http_transport_via_editor():
+    spec = mcp_servers.get_mcp_server("godot-ai")
+    # The agent reaches the plugin-spawned server over HTTP, not stdio.
+    assert spec.transport == "http"
+    assert spec.http_url == mcp_servers.GODOT_AI_HTTP_URL
+    assert spec.http_url.startswith("http://127.0.0.1:")
+    # A live Godot editor with the plugin must run per task.
+    assert spec.needs_godot_editor is True
+    # command/args exist only to prime the uvx package cache during warm_up.
+    assert spec.command == "uvx"
+    assert f"godot-ai=={mcp_servers.GODOT_AI_VERSION}" in spec.args
+
+
+def test_godot_ai_forces_single_worker():
+    # Fixed host ports (EditorSettings-only) collide across parallel editors.
+    assert mcp_servers.get_mcp_server("godot-ai").requires_single_worker is True
+
+
+def test_requires_single_worker_matches_resource_grab():
+    # screenshot grabs a monitor; godot-ai needs a per-task editor; the stdio
+    # servers grab neither and stay parallel-safe.
+    assert mcp_servers.get_mcp_server("screenshot").requires_single_worker is True
+    assert mcp_servers.get_mcp_server("godot").requires_single_worker is False
+    assert mcp_servers.get_mcp_server("godot-tugcan").requires_single_worker is False
+
+
+def test_godot_ai_env_disables_telemetry(monkeypatch):
+    monkeypatch.setenv("GODOT_EXEC_PATH", "/opt/godot/godot")
+    env = mcp_servers.get_mcp_server("godot-ai").env()
+    # Telemetry phones home by default — both opt-out vars must be set.
+    assert env["GODOT_AI_DISABLE_TELEMETRY"] == "1"
+    assert env["DISABLE_TELEMETRY"] == "1"
+    assert env["GODOT_PATH"] == "/opt/godot/godot"
+
+
+def test_godot_ai_marked_for_prefetch():
+    assert mcp_servers.get_mcp_server("godot-ai").prefetch is True
+
+
+def test_godot_ai_warm_up_primes_uvx(monkeypatch):
+    calls = {}
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+
+    monkeypatch.setattr(mcp_servers.subprocess, "run", fake_run)
+    spec = mcp_servers.get_mcp_server("godot-ai")
+    assert spec.warm_up() is True
+    assert calls["cmd"][0] == "uvx"
+    assert f"godot-ai=={mcp_servers.GODOT_AI_VERSION}" in calls["cmd"]
+
+
+def test_stdio_servers_carry_no_http_url():
+    for name in ("screenshot", "godot", "godot-tugcan"):
+        spec = mcp_servers.get_mcp_server(name)
+        assert spec.transport == "stdio"
+        assert spec.http_url == ""
+        assert spec.needs_godot_editor is False
+
+
 def test_unknown_server_raises():
     with pytest.raises(ValueError, match="Unknown MCP server"):
         mcp_servers.get_mcp_server("does-not-exist")

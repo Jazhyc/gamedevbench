@@ -69,6 +69,17 @@ def test_workers_not_clamped_with_headless_mcp(capsys):
     assert "forcing workers=1" not in capsys.readouterr().out
 
 
+def test_workers_clamped_to_one_with_godot_ai(capsys):
+    # godot-ai needs a per-task Godot editor binding fixed host ports -> serial.
+    runner = GodotBenchmarkRunner(
+        use_gt=False, agent=None, use_mcp=True, mcp_server="godot-ai", workers=8
+    )
+    assert runner.workers == 1
+    out = capsys.readouterr().out
+    assert "forcing workers=1" in out
+    assert "fixed host ports" in out
+
+
 def test_workers_passthrough():
     runner = GodotBenchmarkRunner(use_gt=False, agent=None, workers=4)
     assert runner.workers == 4

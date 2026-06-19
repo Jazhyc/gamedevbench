@@ -186,7 +186,7 @@ A separate track measuring ways to help the agent — **Godot-targeted MCP serve
 
 ## Citation
 
-If you find GameDevBench useful, please cite our paper:
+If you find GameDevBench useful, please cite the original paper:
 
 ```bibtex
 @misc{chi2026gamedevbenchevaluatingagenticcapabilities,
